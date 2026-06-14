@@ -36,10 +36,18 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         .iter()
         .map(|&id| {
             let child = state.arena.get(id);
-            if state.apparent_size {
-                child.asize
+            if child.is_dir() {
+                if state.apparent_size {
+                    child.stats.total_asize
+                } else {
+                    child.stats.total_dsize
+                }
             } else {
-                child.dsize
+                if state.apparent_size {
+                    child.asize
+                } else {
+                    child.dsize
+                }
             }
         })
         .max()
@@ -99,10 +107,18 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         };
 
         // Format apparent/disk size
-        let size_val = if state.apparent_size {
-            child.asize
+        let size_val = if child.is_dir() {
+            if state.apparent_size {
+                child.stats.total_asize
+            } else {
+                child.stats.total_dsize
+            }
         } else {
-            child.dsize
+            if state.apparent_size {
+                child.asize
+            } else {
+                child.dsize
+            }
         };
         let size_str = crate::format::format_size(size_val, state.si);
 
