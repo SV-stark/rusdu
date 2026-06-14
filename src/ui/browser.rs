@@ -56,7 +56,25 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     }
     .max(1);
 
-    for (idx, &child_id) in visible_children.iter().enumerate() {
+    let height = chunks[1].height as usize;
+    if height > 0 {
+        if state.selected_idx < state.scroll_offset {
+            state.scroll_offset = state.selected_idx;
+        } else if state.selected_idx >= state.scroll_offset + height {
+            state.scroll_offset = state.selected_idx - height + 1;
+        }
+    }
+
+    if visible_children.len() <= height {
+        state.scroll_offset = 0;
+    } else {
+        state.scroll_offset = state.scroll_offset.min(visible_children.len() - height);
+    }
+
+    let end_idx = (state.scroll_offset + height).min(visible_children.len());
+
+    for idx in state.scroll_offset..end_idx {
+        let child_id = visible_children[idx];
         let child = state.arena.get(child_id);
 
         // Build prefix flag
@@ -177,9 +195,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         list_items.push(ListItem::new(line).style(row_style));
     }
 
-    let list = List::new(list_items)
-        .block(Block::default().borders(Borders::NONE))
-        .highlight_style(theme.selected);
+    let list = List::new(list_items).block(Block::default().borders(Borders::NONE));
     f.render_widget(list, chunks[1]);
 
     // 3. Draw Footer

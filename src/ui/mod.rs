@@ -12,6 +12,7 @@ pub struct AppState {
     pub arena: TreeArena,
     pub current_dir: NodeId,
     pub selected_idx: usize,
+    pub scroll_offset: usize,
     pub history: Vec<(NodeId, usize)>, // Stack of (directory_node_id, selected_index)
     pub args: Args,
 
@@ -77,6 +78,7 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
         current_dir: arena.root,
         arena,
         selected_idx: 0,
+        scroll_offset: 0,
         history: Vec::new(),
         apparent_size: args.apparent_size,
         si: args.si,
@@ -279,6 +281,7 @@ fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
                     state.history.push((state.current_dir, state.selected_idx));
                     state.current_dir = selected_id;
                     state.selected_idx = 0;
+                    state.scroll_offset = 0;
                 }
             }
         }
@@ -286,6 +289,7 @@ fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
             if let Some((parent_id, prev_idx)) = state.history.pop() {
                 state.current_dir = parent_id;
                 state.selected_idx = prev_idx;
+                state.scroll_offset = 0;
             }
         }
 
