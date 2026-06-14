@@ -1,5 +1,5 @@
-use std::fs::Metadata;
 use crate::tree::ExtendedInfo;
+use std::fs::Metadata;
 
 #[derive(Debug, Clone)]
 pub struct PlatformMetadata {
@@ -45,20 +45,20 @@ pub fn get_metadata(meta: &Metadata, extended: bool) -> PlatformMetadata {
 
 #[cfg(windows)]
 pub fn get_metadata(meta: &Metadata, extended: bool) -> PlatformMetadata {
-    use std::os::windows::fs::MetadataExt;
     use std::time::UNIX_EPOCH;
 
     let asize = meta.len() as i64;
     // On Windows, fallback to apparent size or align to 4096 bytes block size
     let dsize = ((asize + 4095) / 4096) * 4096;
 
-    // Use volume serial number and file index if available
-    let dev = meta.volume_serial_number().unwrap_or(0) as u64;
-    let ino = meta.file_index().unwrap_or(0);
-    let nlink = meta.number_of_links().unwrap_or(1);
+    // Volume serial number and file index are not stably available from Metadata on Windows
+    let dev = 0u64;
+    let ino = 0u64;
+    let nlink = 1u32;
 
     let extended_info = if extended {
-        let mtime = meta.modified()
+        let mtime = meta
+            .modified()
             .ok()
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
             .map(|d| d.as_secs() as i64)

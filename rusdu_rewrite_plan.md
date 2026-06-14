@@ -31,15 +31,15 @@ Every feature below must achieve **exact behavioral parity** with ncdu 2.9.x.
 
 | Mode | ncdu Flag | Description | Status |
 |------|-----------|-------------|--------|
-| Scan & Browse | `ncdu [path]` | Scan directory, open browser | 🔲 |
-| Export JSON | `-o <file>` | Scan and export JSON to file | 🔲 |
-| Export Binary | `-O <file>` | Scan and export binary format to file | 🔲 |
-| Import & Browse | `-f <file>` | Import JSON/binary file and browse | 🔲 |
-| Export to stdout | `-o -` / `-O -` | Pipe export data to stdout | 🔲 |
-| Import from stdin | `-f -` | Read JSON from stdin (JSON only) | 🔲 |
-| Format Conversion | `-f in.json -O out.ncdu` | Convert between JSON ↔ binary | 🔲 |
-| Help | `-h` / `--help` | Print help message | 🔲 |
-| Version | `-v` / `-V` / `--version` | Print version | 🔲 |
+| Scan & Browse | `ncdu [path]` | Scan directory, open browser | ✅ |
+| Export JSON | `-o <file>` | Scan and export JSON to file | ✅ |
+| Export Binary | `-O <file>` | Scan and export binary format to file | ✅ |
+| Import & Browse | `-f <file>` | Import JSON/binary file and browse | ✅ |
+| Export to stdout | `-o -` / `-O -` | Pipe export data to stdout | ✅ |
+| Import from stdin | `-f -` | Read JSON from stdin (JSON only) | ✅ |
+| Format Conversion | `-f in.json -O out.ncdu` | Convert between JSON ↔ binary | ✅ |
+| Help | `-h` / `--help` | Print help message | ✅ |
+| Version | `-v` / `-V` / `--version` | Print version | ✅ |
 
 ### 2.2 Complete CLI Flags
 

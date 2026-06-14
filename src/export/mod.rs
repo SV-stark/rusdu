@@ -1,17 +1,17 @@
-pub mod json_write;
-pub mod json_read;
-pub mod bin_write;
 pub mod bin_read;
+pub mod bin_write;
 pub mod compress;
+pub mod json_read;
+pub mod json_write;
 
-use std::path::Path;
-use anyhow::{Result, anyhow};
 use crate::tree::TreeArena;
+use anyhow::Result;
+use std::path::Path;
 
 pub fn import_file(path: &Path) -> Result<TreeArena> {
     // Check magic bytes or extension to select JSON or binary format
     let file_bytes = compress::read_file_maybe_compressed(path)?;
-    
+
     // Check if it starts with the binary format signature: "\xbfncduEX1"
     if file_bytes.starts_with(b"\xbfncduEX1") {
         bin_read::import_bin(&file_bytes)

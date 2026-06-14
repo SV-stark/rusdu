@@ -1,4 +1,4 @@
-use crate::tree::{TreeArena, NodeId, EntryFlags};
+use crate::tree::{EntryFlags, NodeId, TreeArena};
 use anyhow::Result;
 use std::collections::HashMap;
 

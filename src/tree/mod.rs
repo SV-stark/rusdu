@@ -1,7 +1,7 @@
 mod arena;
 mod node;
-mod stats;
+pub mod stats;
 
 pub use arena::TreeArena;
-pub use node::{EntryFlags, ExtendedInfo, TreeNode, NodeId};
+pub use node::{EntryFlags, ExtendedInfo, NodeId, TreeNode};
 pub use stats::AggregateStats;

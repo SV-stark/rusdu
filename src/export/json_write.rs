@@ -1,6 +1,6 @@
-use serde::Serialize;
-use crate::tree::{TreeArena, NodeId, EntryFlags};
+use crate::tree::{EntryFlags, NodeId, TreeArena};
 use anyhow::Result;
+use serde::Serialize;
 
 #[derive(Serialize)]
 #[serde(untagged)]
@@ -82,7 +82,7 @@ fn serialize_node(arena: &TreeArena, node_id: NodeId) -> Result<serde_json::Valu
     let is_kernfs = node.flags.contains(EntryFlags::KERNFS);
     let is_hlnkc = node.flags.contains(EntryFlags::HARD_LINK);
 
-    let mut item = JsonFile {
+    let item = JsonFile {
         name: node.name.to_string(),
         asize: node.asize,
         dsize: node.dsize,

@@ -1,11 +1,11 @@
-use std::path::Path;
-use anyhow::Result;
-use jwalk::{WalkDirGeneric, Parallelism};
-use crate::scan::{ProgressMode, ScanOptions};
 use crate::scan::filter::Filter;
 use crate::scan::platform::get_metadata;
-use crate::tree::{EntryFlags, TreeArena, TreeNode, NodeId};
+use crate::scan::{ProgressMode, ScanOptions};
+use crate::tree::{EntryFlags, NodeId, TreeArena, TreeNode};
+use anyhow::Result;
+use jwalk::{Parallelism, WalkDirGeneric};
 use std::collections::HashMap;
+use std::path::Path;
 
 pub fn scan_parallel(
     root_path: &Path,
@@ -20,12 +20,15 @@ pub fn scan_parallel(
     )?;
 
     if progress_mode == ProgressMode::Line {
-        eprintln!("Scanning parallelly ({} threads) {:?}", opts.threads, root_path);
+        eprintln!(
+            "Scanning parallelly ({} threads) {:?}",
+            opts.threads, root_path
+        );
     }
 
     let root_meta = std::fs::symlink_metadata(root_path)?;
     let root_plat = get_metadata(&root_meta, opts.extended);
-    
+
     let root_node = TreeNode::new_dir(
         root_path.to_string_lossy().into_owned(),
         root_plat.dev,
@@ -45,7 +48,7 @@ pub fn scan_parallel(
     // Build the WalkDir with the specified number of threads
     let walker = WalkDirGeneric::<((), Option<NodeId>)>::new(root_path)
         .follow_links(opts.follow_symlinks)
-        .parallelism(Parallelism::NumThreads(opts.threads));
+        .parallelism(Parallelism::RayonNewPool(opts.threads));
 
     for entry in walker {
         let entry = match entry {
@@ -83,7 +86,11 @@ pub fn scan_parallel(
             Err(_) => continue,
         };
 
-        let file_name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let file_name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         let plat = get_metadata(&meta, opts.extended);
 
         // Check filesystem boundary
@@ -112,7 +119,7 @@ pub fn scan_parallel(
                 plat.extended,
             );
             let child_id = arena.add_child(parent_id, child_node);
-            path_to_id.insert(path, child_id);
+            path_to_id.insert(path.clone(), child_id);
         } else {
             let mut flags = EntryFlags::empty();
             if !entry.file_type.is_file() {
@@ -140,7 +147,9 @@ pub fn scan_parallel(
             let size_str = crate::format::format_size(size_counter, false);
             eprint!(
                 "\rScanning parallelly: {} items [size: {}] | Current: {}",
-                stats_counter, size_str, path.to_string_lossy()
+                stats_counter,
+                size_str,
+                path.to_string_lossy()
             );
         }
     }

@@ -1,11 +1,13 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
 
 pub fn load_config(args: &mut crate::cli::Args) -> Result<()> {
-    let mut config_args = vec![std::env::args().next().unwrap_or_else(|| "rusdu".to_string())];
+    let mut config_args = vec![std::env::args()
+        .next()
+        .unwrap_or_else(|| "rusdu".to_string())];
 
     // 1. Load system config on Unix
     #[cfg(unix)]
@@ -50,7 +52,8 @@ pub fn load_config(args: &mut crate::cli::Args) -> Result<()> {
 }
 
 fn append_config_args(path: &Path, args: &mut Vec<String>) -> Result<()> {
-    let file = File::open(path).with_context(|| format!("Failed to open config file {:?}", path))?;
+    let file =
+        File::open(path).with_context(|| format!("Failed to open config file {:?}", path))?;
     let reader = BufReader::new(file);
 
     for line in reader.lines() {
@@ -75,8 +78,12 @@ fn append_config_args(path: &Path, args: &mut Vec<String>) -> Result<()> {
         // or just:
         // -e
         // Let's split it into tokens
-        let parts = shell_words::split(clean_line)
-            .unwrap_or_else(|_| clean_line.split_whitespace().map(|s| s.to_string()).collect());
+        let parts = shell_words::split(clean_line).unwrap_or_else(|_| {
+            clean_line
+                .split_whitespace()
+                .map(|s| s.to_string())
+                .collect()
+        });
 
         for part in parts {
             if !part.is_empty() {

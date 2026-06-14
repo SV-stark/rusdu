@@ -37,7 +37,11 @@ impl TreeArena {
         // we can simply remove the node from its parent's children list.
         // We leave the node itself in `self.nodes` (or mark it as deleted/empty) to preserve indices.
         if let Some(parent_id) = self.nodes[node_id.0].parent {
-            if let Some(pos) = self.nodes[parent_id.0].children.iter().position(|&id| id == node_id) {
+            if let Some(pos) = self.nodes[parent_id.0]
+                .children
+                .iter()
+                .position(|&id| id == node_id)
+            {
                 self.nodes[parent_id.0].children.remove(pos);
             }
         }

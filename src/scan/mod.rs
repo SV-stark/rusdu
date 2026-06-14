@@ -1,11 +1,11 @@
 pub mod filter;
+pub mod parallel;
 pub mod platform;
 pub mod walker;
-pub mod parallel;
 
-use std::path::{Path, PathBuf};
-use anyhow::Result;
 use crate::tree::TreeArena;
+use anyhow::Result;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct ScanOptions {

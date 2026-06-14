@@ -1,8 +1,12 @@
-use std::path::PathBuf;
 use clap::Parser;
+use std::path::PathBuf;
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "rusdu", version, about = "Rust rewrite of ncdu — NCurses Disk Usage analyzer")]
+#[command(
+    name = "rusdu",
+    version,
+    about = "Rust rewrite of ncdu — NCurses Disk Usage analyzer"
+)]
 pub struct Args {
     /// Directory or file to scan
     pub path: Option<PathBuf>,

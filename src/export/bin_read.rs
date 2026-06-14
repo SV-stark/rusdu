@@ -1,5 +1,5 @@
-use crate::tree::{TreeArena, TreeNode, EntryFlags, ExtendedInfo, NodeId};
-use anyhow::{Result, anyhow};
+use crate::tree::{EntryFlags, ExtendedInfo, NodeId, TreeArena, TreeNode};
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
 pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
@@ -41,7 +41,7 @@ pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
             }
             let block_num = u32::from_be_bytes(content[0..4].try_into()?);
             let compressed_data = &content[4..];
-            
+
             // Decompress
             let decompressed = zstd::stream::decode_all(compressed_data)?;
             data_blocks.insert(block_num, decompressed);
@@ -60,12 +60,14 @@ pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
         return Err(anyhow!("Malformed index block"));
     }
     let root_ref_offset = index_bytes.len() - 8;
-    let root_itemref = u64::from_be_bytes(index_bytes[root_ref_offset..root_ref_offset + 8].try_into()?);
+    let root_itemref =
+        u64::from_be_bytes(index_bytes[root_ref_offset..root_ref_offset + 8].try_into()?);
 
     let root_block_num = (root_itemref >> 24) as u32;
     let root_offset = (root_itemref & 0xFFFFFF) as usize;
 
-    let root_block_data = data_blocks.get(&root_block_num)
+    let root_block_data = data_blocks
+        .get(&root_block_num)
         .ok_or_else(|| anyhow!("Root data block {} not found", root_block_num))?;
 
     // Now, decode all items in the block
@@ -78,7 +80,7 @@ pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
     while cursor < root_block_data.len() {
         let item_offset = cursor;
         let reader = &root_block_data[cursor..];
-        
+
         let value: ciborium::value::Value = match ciborium::de::from_reader(reader) {
             Ok(val) => val,
             Err(_) => break, // Reached end of stream
@@ -243,12 +245,13 @@ pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
 
     // Now construct the TreeArena
     // Find the root node index
-    let root_node_idx = *id_map.get(&(root_block_num, root_offset))
+    let root_node_idx = *id_map
+        .get(&(root_block_num, root_offset))
         .ok_or_else(|| anyhow!("Root node not found at offset {}", root_offset))?;
 
     // Initialize arena with the root node
     let mut arena = TreeArena::new(node_list[root_node_idx].clone());
-    
+
     // Map list indices to NodeId in the arena
     let mut idx_to_node_id = HashMap::new();
     idx_to_node_id.insert(root_node_idx, arena.root);
@@ -297,9 +300,10 @@ pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
     }
 
     // Now let's recursively build the arena from root_node_idx
+    let root_id = arena.root;
     build_arena_recursive(
         &mut arena,
-        arena.root,
+        root_id,
         root_node_idx,
         &node_list,
         &children_lists,
@@ -319,7 +323,7 @@ fn build_arena_recursive(
     children_lists: &[Vec<usize>],
 ) {
     let mut children_indices = children_lists[parent_idx].clone();
-    
+
     // Sort children based on their order in the node_list/offsets to maintain order
     children_indices.sort();
 

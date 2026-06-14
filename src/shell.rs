@@ -1,6 +1,6 @@
+use anyhow::{anyhow, Result};
 use std::path::Path;
 use std::process::Command;
-use anyhow::{Result, anyhow};
 
 pub fn spawn_shell(dir_path: &Path, read_only: bool) -> Result<()> {
     if read_only {
@@ -20,11 +20,16 @@ pub fn spawn_shell(dir_path: &Path, read_only: bool) -> Result<()> {
     let ncdu_level = std::env::var("NCDU_LEVEL")
         .ok()
         .and_then(|val| val.parse::<i32>().ok())
-        .unwrap_or(0) + 1;
+        .unwrap_or(0)
+        + 1;
 
     // Suspend crossterm TUI raw mode before launching shell
     crossterm::terminal::disable_raw_mode()?;
-    crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen, crossterm::cursor::Show)?;
+    crossterm::execute!(
+        std::io::stdout(),
+        crossterm::terminal::LeaveAlternateScreen,
+        crossterm::cursor::Show
+    )?;
 
     let mut cmd = Command::new(&shell_exe);
     cmd.current_dir(dir_path)
@@ -34,7 +39,11 @@ pub fn spawn_shell(dir_path: &Path, read_only: bool) -> Result<()> {
 
     // Re-enable TUI raw mode
     crossterm::terminal::enable_raw_mode()?;
-    crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen, crossterm::cursor::Hide)?;
+    crossterm::execute!(
+        std::io::stdout(),
+        crossterm::terminal::EnterAlternateScreen,
+        crossterm::cursor::Hide
+    )?;
 
     match status {
         Ok(s) => {

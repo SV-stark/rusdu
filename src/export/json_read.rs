@@ -1,7 +1,7 @@
+use crate::tree::{EntryFlags, ExtendedInfo, NodeId, TreeArena, TreeNode};
+use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use serde_json::Value;
-use crate::tree::{TreeArena, TreeNode, EntryFlags, ExtendedInfo, NodeId};
-use anyhow::{Result, anyhow};
 
 #[derive(Deserialize, Debug)]
 struct JsonFileImport {
@@ -78,7 +78,7 @@ fn deserialize_node(
 
         // Index 0 is metadata
         let meta_import: JsonFileImport = serde_json::from_value(dir_array[0].clone())?;
-        
+
         let mut flags = EntryFlags::IS_DIR;
         if meta_import.read_error.unwrap_or(false) {
             flags.insert(EntryFlags::READ_ERROR);
@@ -117,20 +117,21 @@ fn deserialize_node(
             extended,
         );
 
-        let mut local_arena;
+        let mut local_arena = None;
         let active_arena;
         let current_dir_id;
 
-        match arena {
-            Some(ref mut a) => {
+        match arena.as_mut() {
+            Some(a) => {
                 let parent = parent_id.unwrap();
                 current_dir_id = a.add_child(parent, dir_node);
-                active_arena = a;
+                active_arena = &mut **a;
             }
             None => {
-                local_arena = TreeArena::new(dir_node);
-                current_dir_id = local_arena.root;
-                active_arena = &mut local_arena;
+                let la = TreeArena::new(dir_node);
+                current_dir_id = la.root;
+                local_arena = Some(la);
+                active_arena = local_arena.as_mut().unwrap();
             }
         }
 
@@ -139,11 +140,17 @@ fn deserialize_node(
             deserialize_node(child_val, Some(active_arena), Some(current_dir_id))?;
         }
 
-        if arena.is_none() {
-            Ok(local_arena)
+        if local_arena.is_some() {
+            Ok(local_arena.unwrap())
         } else {
             // Dummy arena returned when nested
-            Ok(TreeArena::new(TreeNode::new_dir(String::new(), 0, 0, EntryFlags::empty(), None)))
+            Ok(TreeArena::new(TreeNode::new_dir(
+                String::new(),
+                0,
+                0,
+                EntryFlags::empty(),
+                None,
+            )))
         }
     } else {
         // File
@@ -195,6 +202,12 @@ fn deserialize_node(
             a.add_child(parent, file_node);
         }
 
-        Ok(TreeArena::new(TreeNode::new_dir(String::new(), 0, 0, EntryFlags::empty(), None)))
+        Ok(TreeArena::new(TreeNode::new_dir(
+            String::new(),
+            0,
+            0,
+            EntryFlags::empty(),
+            None,
+        )))
     }
 }

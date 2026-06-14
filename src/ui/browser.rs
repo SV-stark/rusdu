@@ -1,8 +1,10 @@
+use crate::tree::{EntryFlags, NodeId};
+use crate::ui::theme::get_theme;
+use crate::ui::{
+    get_node_path, get_visible_children, AppState, Dialog, GraphMode, HelpPage, SharedColumnMode,
+};
 use ratatui::prelude::*;
 use ratatui::widgets::*;
-use crate::ui::{AppState, Dialog, GraphMode, HelpPage, SharedColumnMode, get_visible_children, get_node_path};
-use crate::ui::theme::get_theme;
-use crate::tree::{EntryFlags, NodeId};
 
 pub fn draw(f: &mut Frame, state: &mut AppState) {
     let theme = get_theme(&state.args.color);
@@ -30,10 +32,15 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     let mut list_items = Vec::new();
 
     // Find the largest size to scale the graph column
-    let max_size = visible_children.iter()
+    let max_size = visible_children
+        .iter()
         .map(|&id| {
             let child = state.arena.get(id);
-            if state.apparent_size { child.asize } else { child.dsize }
+            if state.apparent_size {
+                child.asize
+            } else {
+                child.dsize
+            }
         })
         .max()
         .unwrap_or(0);
@@ -41,12 +48,17 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     // Get parent cumulative size to compute percentage
     let parent_cumulative_size = {
         let parent = state.arena.get(state.current_dir);
-        if state.apparent_size { parent.stats.total_asize } else { parent.stats.total_dsize }
-    }.max(1);
+        if state.apparent_size {
+            parent.stats.total_asize
+        } else {
+            parent.stats.total_dsize
+        }
+    }
+    .max(1);
 
     for (idx, &child_id) in visible_children.iter().enumerate() {
         let child = state.arena.get(child_id);
-        
+
         // Build prefix flag
         let flag = if child.flags.contains(EntryFlags::READ_ERROR) {
             "!"
@@ -69,7 +81,11 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         };
 
         // Format apparent/disk size
-        let size_val = if state.apparent_size { child.asize } else { child.dsize };
+        let size_val = if state.apparent_size {
+            child.asize
+        } else {
+            child.dsize
+        };
         let size_str = crate::format::format_size(size_val, state.si);
 
         // Optional Column: Shared column
@@ -82,7 +98,11 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         // Optional Column: Item count
         let mut itemcount_str = String::new();
         if state.show_itemcount {
-            let items = if child.is_dir() { child.stats.item_count } else { 1 };
+            let items = if child.is_dir() {
+                child.stats.item_count
+            } else {
+                1
+            };
             itemcount_str = format!(" {:>5}", items);
         }
 
@@ -92,7 +112,11 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
             let mtime_val = child.extended.as_ref().map(|e| e.mtime).unwrap_or(0);
             if mtime_val > 0 {
                 let dt = chrono::DateTime::from_timestamp(mtime_val, 0);
-                mtime_str = format!(" {}", dt.map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string()).unwrap_or_else(|| "Unknown".to_string()));
+                mtime_str = format!(
+                    " {}",
+                    dt.map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
+                        .unwrap_or_else(|| "Unknown".to_string())
+                );
             } else {
                 mtime_str = " ".repeat(20);
             }
@@ -141,7 +165,11 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
             shared_str,
             itemcount_str,
             mtime_str,
-            if state.graph_mode == GraphMode::Both || state.graph_mode == GraphMode::Percent { &pct_str } else { "" },
+            if state.graph_mode == GraphMode::Both || state.graph_mode == GraphMode::Percent {
+                &pct_str
+            } else {
+                ""
+            },
             graph_str,
             display_name
         );
@@ -223,7 +251,10 @@ fn draw_help_dialog(f: &mut Frame, page: HelpPage, theme: &crate::ui::theme::The
                 Span::raw("\n\n"),
             ]));
             text.push(Line::from("  rusdu — Rust rewrite of ncdu"));
-            text.push(Line::from(format!("  Version: {}", env!("CARGO_PKG_VERSION"))));
+            text.push(Line::from(format!(
+                "  Version: {}",
+                env!("CARGO_PKG_VERSION")
+            )));
             text.push(Line::from("  Designed to be 100% compatible with ncdu 2.x"));
             text.push(Line::from("  Powered by ratatui and crossterm."));
         }
@@ -240,7 +271,12 @@ fn draw_help_dialog(f: &mut Frame, page: HelpPage, theme: &crate::ui::theme::The
     f.render_widget(paragraph, area);
 }
 
-fn draw_info_dialog(f: &mut Frame, state: &AppState, node_id: NodeId, theme: &crate::ui::theme::Theme) {
+fn draw_info_dialog(
+    f: &mut Frame,
+    state: &AppState,
+    node_id: NodeId,
+    theme: &crate::ui::theme::Theme,
+) {
     let size = f.size();
     let area = centered_rect(70, 50, size);
 
@@ -258,35 +294,62 @@ fn draw_info_dialog(f: &mut Frame, state: &AppState, node_id: NodeId, theme: &cr
     ]));
     text.push(Line::from(vec![
         Span::styled("Type: ", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(if node.is_dir() { "Directory" } else { "Regular File" }),
+        Span::raw(if node.is_dir() {
+            "Directory"
+        } else {
+            "Regular File"
+        }),
     ]));
     text.push(Line::from(vec![
-        Span::styled("Apparent size: ", Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "Apparent size: ",
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
         Span::raw(crate::format::format_size(node.asize, state.si)),
     ]));
     text.push(Line::from(vec![
-        Span::styled("Disk usage:    ", Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "Disk usage:    ",
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
         Span::raw(crate::format::format_size(node.dsize, state.si)),
     ]));
 
     if node.is_dir() {
         text.push(Line::from(vec![
-            Span::styled("Sub-items:     ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Sub-items:     ",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
             Span::raw(node.stats.item_count.to_string()),
         ]));
     }
 
     if let Some(ref ext) = node.extended {
         text.push(Line::from(vec![
-            Span::styled("Last modified: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(format!("{}", chrono::DateTime::from_timestamp(ext.mtime, 0).map(|d| d.to_rfc3339()).unwrap_or_else(|| "Unknown".to_string()))),
+            Span::styled(
+                "Last modified: ",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!(
+                "{}",
+                chrono::DateTime::from_timestamp(ext.mtime, 0)
+                    .map(|d| d.to_rfc3339())
+                    .unwrap_or_else(|| "Unknown".to_string())
+            )),
         ]));
         text.push(Line::from(vec![
-            Span::styled("UID / GID:     ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "UID / GID:     ",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
             Span::raw(format!("{} / {}", ext.uid, ext.gid)),
         ]));
         text.push(Line::from(vec![
-            Span::styled("Permissions:   ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Permissions:   ",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
             Span::raw(format!("{:o}", ext.mode)),
         ]));
     }
@@ -302,16 +365,22 @@ fn draw_info_dialog(f: &mut Frame, state: &AppState, node_id: NodeId, theme: &cr
     f.render_widget(paragraph, area);
 }
 
-fn draw_confirm_delete(f: &mut Frame, state: &AppState, node_id: NodeId, theme: &crate::ui::theme::Theme) {
+fn draw_confirm_delete(
+    f: &mut Frame,
+    state: &AppState,
+    node_id: NodeId,
+    theme: &crate::ui::theme::Theme,
+) {
     let size = f.size();
     let area = centered_rect(50, 20, size);
 
     let node = state.arena.get(node_id);
     let mut text = Vec::new();
     text.push(Line::from("Are you sure you want to delete:"));
-    text.push(Line::from(vec![
-        Span::styled(&*node.name, Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
-    ]));
+    text.push(Line::from(vec![Span::styled(
+        &*node.name,
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+    )]));
     text.push(Line::from("\n(Press 'y' to confirm, 'n' to cancel)"));
 
     let block = Block::default()

@@ -1,12 +1,8 @@
+use anyhow::{anyhow, Result};
 use std::path::Path;
 use std::process::Command;
-use anyhow::{Result, anyhow};
 
-pub fn delete_item(
-    path: &Path,
-    custom_command: Option<&str>,
-    read_only: bool,
-) -> Result<()> {
+pub fn delete_item(path: &Path, custom_command: Option<&str>, read_only: bool) -> Result<()> {
     if read_only {
         return Err(anyhow!("Cannot delete in read-only mode"));
     }

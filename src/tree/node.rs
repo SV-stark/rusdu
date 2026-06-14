@@ -20,7 +20,7 @@ bitflags! {
 
 #[derive(Debug, Clone)]
 pub struct ExtendedInfo {
-    pub mtime: i64,     // Unix timestamp
+    pub mtime: i64, // Unix timestamp
     pub uid: u32,
     pub gid: u32,
     pub mode: u32,

@@ -1,10 +1,11 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use anyhow::Result;
-use crate::scan::{ProgressMode, ScanOptions};
 use crate::scan::filter::Filter;
 use crate::scan::platform::get_metadata;
-use crate::tree::{EntryFlags, TreeArena, TreeNode, NodeId};
+use crate::scan::{ProgressMode, ScanOptions};
+use crate::tree::{EntryFlags, NodeId, TreeArena, TreeNode};
+use anyhow::Result;
+use std::fs;
+use std::io::Write;
+use std::path::Path;
 
 pub fn scan_single_threaded(
     root_path: &Path,
@@ -25,7 +26,7 @@ pub fn scan_single_threaded(
 
     let root_meta = fs::symlink_metadata(root_path)?;
     let root_plat = get_metadata(&root_meta, opts.extended);
-    
+
     let root_node = TreeNode::new_dir(
         root_path.to_string_lossy().into_owned(),
         root_plat.dev,
@@ -83,7 +84,10 @@ fn walk_dir_recursive(
     let entries = match fs::read_dir(dir_path) {
         Ok(e) => e,
         Err(_) => {
-            arena.get_mut(parent_id).flags.insert(EntryFlags::READ_ERROR);
+            arena
+                .get_mut(parent_id)
+                .flags
+                .insert(EntryFlags::READ_ERROR);
             return Ok(());
         }
     };
@@ -97,7 +101,7 @@ fn walk_dir_recursive(
         };
 
         let path = entry.path();
-        
+
         // Exclude check
         if filter.should_exclude_path(&path) {
             continue;
@@ -115,7 +119,7 @@ fn walk_dir_recursive(
             match fs::symlink_metadata(&path) {
                 Ok(m) => m,
                 Err(_) => continue,
-            },
+            }
         };
 
         let file_name = entry.file_name().to_string_lossy().into_owned();
@@ -123,7 +127,7 @@ fn walk_dir_recursive(
 
         // Check filesystem boundary
         if opts.one_file_system && plat.dev != parent_dev {
-            let mut child = TreeNode::new_dir(
+            let child = TreeNode::new_dir(
                 file_name,
                 plat.dev,
                 plat.ino,
@@ -149,8 +153,10 @@ fn walk_dir_recursive(
                 plat.extended,
             );
             let child_id = arena.add_child(parent_id, child_node);
-            
-            if let Err(_) = walk_dir_recursive(arena, child_id, &path, opts, filter, progress_mode, stats) {
+
+            if let Err(_) =
+                walk_dir_recursive(arena, child_id, &path, opts, filter, progress_mode, stats)
+            {
                 arena.get_mut(child_id).flags.insert(EntryFlags::READ_ERROR);
             }
         } else {

@@ -1,12 +1,12 @@
 mod browser;
 mod theme;
 
-use crate::tree::{TreeArena, NodeId};
 use crate::cli::Args;
+use crate::tree::{NodeId, TreeArena};
 use anyhow::Result;
+use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
-use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 
 pub struct AppState {
     pub arena: TreeArena,
@@ -14,7 +14,7 @@ pub struct AppState {
     pub selected_idx: usize,
     pub history: Vec<(NodeId, usize)>, // Stack of (directory_node_id, selected_index)
     pub args: Args,
-    
+
     // UI state toggles
     pub apparent_size: bool,
     pub si: bool,
@@ -64,7 +64,11 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
     // Set up raw mode and alternate screen
     crossterm::terminal::enable_raw_mode()?;
     let mut stdout = std::io::stdout();
-    crossterm::execute!(stdout, crossterm::terminal::EnterAlternateScreen, crossterm::cursor::Hide)?;
+    crossterm::execute!(
+        stdout,
+        crossterm::terminal::EnterAlternateScreen,
+        crossterm::cursor::Hide
+    )?;
 
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
@@ -137,47 +141,43 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
 
 fn handle_dialog_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
     match &state.active_dialog {
-        Dialog::Help(page) => {
-            match code {
-                KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('?') => {
-                    state.active_dialog = Dialog::None;
-                }
-                KeyCode::Char('1') => {
-                    state.active_dialog = Dialog::Help(HelpPage::Keys);
-                }
-                KeyCode::Char('2') => {
-                    state.active_dialog = Dialog::Help(HelpPage::Format);
-                }
-                KeyCode::Char('3') => {
-                    state.active_dialog = Dialog::Help(HelpPage::About);
-                }
-                KeyCode::Left | KeyCode::Char('h') => {
-                    let prev_page = match page {
-                        HelpPage::Keys => HelpPage::About,
-                        HelpPage::Format => HelpPage::Keys,
-                        HelpPage::About => HelpPage::Format,
-                    };
-                    state.active_dialog = Dialog::Help(prev_page);
-                }
-                KeyCode::Right | KeyCode::Char('l') => {
-                    let next_page = match page {
-                        HelpPage::Keys => HelpPage::Format,
-                        HelpPage::Format => HelpPage::About,
-                        HelpPage::About => HelpPage::Keys,
-                    };
-                    state.active_dialog = Dialog::Help(next_page);
-                }
-                _ => {}
+        Dialog::Help(page) => match code {
+            KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('?') => {
+                state.active_dialog = Dialog::None;
             }
-        }
-        Dialog::Info(_) => {
-            match code {
-                KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('i') | KeyCode::Enter => {
-                    state.active_dialog = Dialog::None;
-                }
-                _ => {}
+            KeyCode::Char('1') => {
+                state.active_dialog = Dialog::Help(HelpPage::Keys);
             }
-        }
+            KeyCode::Char('2') => {
+                state.active_dialog = Dialog::Help(HelpPage::Format);
+            }
+            KeyCode::Char('3') => {
+                state.active_dialog = Dialog::Help(HelpPage::About);
+            }
+            KeyCode::Left | KeyCode::Char('h') => {
+                let prev_page = match page {
+                    HelpPage::Keys => HelpPage::About,
+                    HelpPage::Format => HelpPage::Keys,
+                    HelpPage::About => HelpPage::Format,
+                };
+                state.active_dialog = Dialog::Help(prev_page);
+            }
+            KeyCode::Right | KeyCode::Char('l') => {
+                let next_page = match page {
+                    HelpPage::Keys => HelpPage::Format,
+                    HelpPage::Format => HelpPage::About,
+                    HelpPage::About => HelpPage::Keys,
+                };
+                state.active_dialog = Dialog::Help(next_page);
+            }
+            _ => {}
+        },
+        Dialog::Info(_) => match code {
+            KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('i') | KeyCode::Enter => {
+                state.active_dialog = Dialog::None;
+            }
+            _ => {}
+        },
         Dialog::ConfirmDelete(node_id) => {
             let node_id = *node_id;
             match code {
@@ -185,7 +185,11 @@ fn handle_dialog_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
                     // Perform deletion
                     let item_path = get_node_path(&state.arena, node_id);
                     let read_only = state.args.read_only >= 1;
-                    if let Err(e) = crate::delete::delete_item(&item_path, state.args.delete_command.as_deref(), read_only) {
+                    if let Err(e) = crate::delete::delete_item(
+                        &item_path,
+                        state.args.delete_command.as_deref(),
+                        read_only,
+                    ) {
                         log::error!("Delete failed: {}", e);
                     } else {
                         // Delete successfully from memory
@@ -357,7 +361,11 @@ fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
                     // Delete immediately
                     let item_path = get_node_path(&state.arena, selected_id);
                     let read_only = state.args.read_only >= 1;
-                    let _ = crate::delete::delete_item(&item_path, state.args.delete_command.as_deref(), read_only);
+                    let _ = crate::delete::delete_item(
+                        &item_path,
+                        state.args.delete_command.as_deref(),
+                        read_only,
+                    );
                     state.arena.delete_node(selected_id);
                     crate::tree::stats::recalculate_stats(&mut state.arena);
                 }
@@ -382,9 +390,14 @@ fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
                     threads: state.args.threads.unwrap_or(1),
                     extended: state.args.extended,
                 };
-                if let Ok(new_arena) = crate::scan::scan_directory(&current_path, opts, crate::scan::ProgressMode::Silent) {
+                if let Ok(new_arena) = crate::scan::scan_directory(
+                    &current_path,
+                    opts,
+                    crate::scan::ProgressMode::Silent,
+                ) {
                     // Replace children of current dir with newly scanned tree
-                    state.arena.get_mut(state.current_dir).children = new_arena.nodes[new_arena.root.0].children.clone();
+                    state.arena.get_mut(state.current_dir).children =
+                        new_arena.nodes[new_arena.root.0].children.clone();
                     // Copy node data
                     // For simplicity, let's just update the whole subtree or merge.
                     // A simple refresh merges nodes or replaces the arena entirely. Let's merge or replace:
@@ -488,7 +501,7 @@ pub fn get_node_path(arena: &TreeArena, node_id: NodeId) -> std::path::PathBuf {
     }
 
     path_components.reverse();
-    
+
     // Join path components
     let mut path = std::path::PathBuf::new();
     for comp in path_components {

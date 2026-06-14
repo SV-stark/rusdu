@@ -1,8 +1,8 @@
+use anyhow::Result;
+use glob::Pattern;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use glob::Pattern;
-use anyhow::Result;
 
 pub struct Filter {
     exclude_patterns: Vec<Pattern>,
@@ -65,9 +65,7 @@ impl Filter {
         if self.exclude_kernfs {
             if let Some(path_str) = path.to_str() {
                 // Known pseudo-filesystem prefixes
-                let kernfs_prefixes = &[
-                    "/proc/", "/sys/", "/dev/", "/run/", "/sys/fs/",
-                ];
+                let kernfs_prefixes = &["/proc/", "/sys/", "/dev/", "/run/", "/sys/fs/"];
                 for prefix in kernfs_prefixes {
                     if path_str.starts_with(prefix) {
                         return true;

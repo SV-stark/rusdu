@@ -1,4 +1,4 @@
-use ratatui::style::{Color, Style, Modifier};
+use ratatui::style::{Color, Modifier, Style};
 
 pub struct Theme {
     pub header: Style,
@@ -14,20 +14,38 @@ pub struct Theme {
 pub fn get_theme(name: &str) -> Theme {
     match name {
         "dark" => Theme {
-            header: Style::default().bg(Color::Blue).fg(Color::White).add_modifier(Modifier::BOLD),
+            header: Style::default()
+                .bg(Color::Blue)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
             footer: Style::default().bg(Color::Blue).fg(Color::White),
-            selected: Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD),
-            dir: Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD),
+            selected: Style::default()
+                .bg(Color::Cyan)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+            dir: Style::default()
+                .fg(Color::Blue)
+                .add_modifier(Modifier::BOLD),
             file: Style::default().fg(Color::White),
             graph: Style::default().fg(Color::Green),
-            shortcut: Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            shortcut: Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
             border: Style::default().fg(Color::Gray),
         },
         "dark-bg" => Theme {
-            header: Style::default().bg(Color::Black).fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            header: Style::default()
+                .bg(Color::Black)
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
             footer: Style::default().bg(Color::Black).fg(Color::Cyan),
-            selected: Style::default().bg(Color::White).fg(Color::Black).add_modifier(Modifier::BOLD),
-            dir: Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            selected: Style::default()
+                .bg(Color::White)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+            dir: Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
             file: Style::default().fg(Color::Gray),
             graph: Style::default().fg(Color::Cyan),
             shortcut: Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),

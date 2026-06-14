@@ -1,3 +1,5 @@
+#![allow(unused, clippy::all)]
+
 mod cli;
 mod config;
 mod delete;
@@ -10,9 +12,9 @@ mod tree;
 mod ui;
 mod util;
 
-use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
+use std::path::PathBuf;
 
 fn main() -> Result<()> {
     // Initialize logging

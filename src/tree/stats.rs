@@ -1,5 +1,5 @@
+use crate::tree::{EntryFlags, NodeId, TreeArena};
 use std::collections::HashSet;
-use crate::tree::{NodeId, TreeArena, EntryFlags};
 
 #[derive(Debug, Clone, Default)]
 pub struct AggregateStats {
@@ -29,7 +29,7 @@ fn aggregate_node_stats(
         let node = arena.get(node_id);
         let is_hard_link = node.flags.contains(EntryFlags::HARD_LINK);
         let link_key = (node.dev, node.ino);
-        
+
         let (asize, dsize) = if is_hard_link {
             if seen_links.contains(&link_key) {
                 // Already counted, don't count towards normal sizes
@@ -64,7 +64,7 @@ fn aggregate_node_stats(
 
     for child_id in children {
         let child_stats = aggregate_node_stats(arena, child_id, seen_links);
-        
+
         stats.total_asize += child_stats.total_asize;
         stats.total_dsize += child_stats.total_dsize;
         stats.item_count += child_stats.item_count;
