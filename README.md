@@ -1,0 +1,127 @@
+# 🦀 rusdu — Rust Disk Usage Analyzer
+
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)](#)
+
+A modern, fast, and feature-complete Rust rewrite of the classic **ncdu** (NCurses Disk Usage) analyzer.
+
+> [!NOTE]  
+> **Tribute to the Original**: This project is inspired by and pays tribute to the original **ncdu** tool created by **Yohan Helajzen (Yorhel)**. For over a decade, `ncdu` has been the gold standard for quick, terminal-based disk analysis. **rusdu** is written from scratch in Rust, preserving 100% compatibility with the command-line flags, interactive keybindings, and binary/JSON export schemas of `ncdu` 2.x, while extending first-class cross-platform support to Windows.
+
+---
+
+## 🚀 Key Features
+
+*   **Fast Directory Traversal**: Recursive scanning optimized with multi-threading support (`-t` flag) via parallel work-stealing execution.
+*   **Dual Export Schemas**: 
+    *   **JSON Schema**: Stream JSON exports (`-o`) fully compatible with the standard `ncdu` version 1.2 layout.
+    *   **Binary CBOR Schema**: Write and parse binary exports (`-O`) with compressed CBOR maps, index offsets, and bidirectional block pointers for minimal memory footprints on large directory trees.
+*   **Interactive TUI**: Rich scrollable UI showing directory sizes, apparent vs. disk usage, cumulative counts, and visual bars.
+*   **Advanced Filters**: Supports cache exclusions (`CACHEDIR.TAG`), standard globs (`--exclude`), pseudo-filesystems (`--exclude-kernfs`), and filesystem boundaries (`-x`).
+*   **Safe Operations**: Custom deletion commands (`--delete-command`), confirmation boxes, and multiple read-only levels (`-r` and `-rr`).
+*   **Windows & Unix Cross-Platform Support**: Built on `crossterm` and `ratatui`, enabling native operations on Linux, macOS, and Windows.
+
+---
+
+## ⚖️ Comparison with Original ncdu 2.x (Zig)
+
+### Pros of rusdu
+*   **Native Windows Support**: The original `ncdu` is POSIX-bound and relies on `ncurses`, making it incompatible with Windows. `rusdu` runs natively on Windows CMD, PowerShell, and Windows Terminal.
+*   **Compile-Time Memory Safety**: Rust's borrow checker prevents memory leaks, dangling pointers, and data races, which is highly beneficial for multi-threaded directory traversals.
+*   **Active Ecosystem**: Easier to build, extend, and package using `cargo` compared to Zig's pre-1.0 compiler version build system.
+
+### Cons of rusdu
+*   **Binary Size**: Compiled Rust TUI binaries are slightly larger (approx 2-3MB stripped) compared to Zig's extremely lightweight, sub-megabyte binaries.
+*   **Compilation Times**: Rust's compiler optimizations and TUI dependency tree result in longer compile times than Zig.
+
+## 🛠️ Installation & Setup
+
+### Method 1: Download Pre-built Binaries (Recommended)
+You can download the latest pre-compiled binaries from the **[Nightly Releases](../../releases/tag/nightly)** page:
+*   **Linux**: `rusdu-linux-amd64.tar.gz`
+*   **macOS**: `rusdu-macos-amd64.tar.gz`
+*   **Windows**: `rusdu-windows-amd64.zip`
+
+#### Adding to PATH:
+
+##### 🐧 Linux & 🍎 macOS
+1.  Extract the archive and move the binary to a directory in your PATH (e.g., `/usr/local/bin`):
+    ```bash
+    tar -xzf rusdu-*.tar.gz
+    sudo mv rusdu /usr/local/bin/
+    ```
+2.  Alternatively, place it in a custom folder (e.g., `~/.local/bin`) and append it to your Shell profile (`~/.bashrc`, `~/.zshrc`):
+    ```bash
+    export PATH="$HOME/.local/bin:$PATH"
+    ```
+> [!NOTE]  
+> On **macOS**, when executing the binary for the first time, you may need to grant permission via System Settings > Privacy & Security or run: `xattr -d com.apple.quarantine /usr/local/bin/rusdu`.
+
+##### 🪟 Windows
+1.  Extract `rusdu-windows-amd64.zip` to a folder (e.g., `C:\Program Files\rusdu`).
+2.  Add the folder to your user Environment variables:
+    *   **Via GUI**: Search for "Edit the system environment variables" > Click "Environment Variables" > Select "Path" under User variables > Click "Edit" > Click "New" > Paste `C:\Program Files\rusdu` > Click OK.
+    *   **Via PowerShell (Admin)**:
+        ```powershell
+        [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";C:\Program Files\rusdu", "User")
+        ```
+
+---
+
+### Method 2: Build from Source
+If you prefer to compile manually:
+```bash
+git clone https://github.com/yourusername/rusdu.git
+cd rusdu
+cargo build --release
+```
+The compiled binary will be located in `target/release/rusdu` (or `target/release/rusdu.exe` on Windows).
+
+---
+
+## 📖 Usage & Commands
+
+```
+rusdu [PATH] [OPTIONS]
+```
+
+### Core CLI Commands
+
+| Flag | Long Form | Description |
+| :--- | :--- | :--- |
+| `-f <FILE>` | `--import <FILE>` | Load and browse a previously exported JSON or binary file |
+| `-o <FILE>` | `--export-json <FILE>` | Scan the directory and export results to a JSON file |
+| `-O <FILE>` | `--export-bin <FILE>` | Scan and export results to a binary CBOR file |
+| `-x` | `--one-file-system` | Stay on the same filesystem partition |
+| `-t <N>` | `--threads <N>` | Set number of scanning threads (default: 1) |
+| `-e` | `--extended` | Enable extended info mode (mtime, uid, gid, mode) |
+| `-r` | | Read-only mode (`-r` disables deletes; `-rr` also disables shell) |
+
+### Interactive Keybindings in Browser
+
+*   **Navigation**: `↑`/`↓` or `k`/`j` to scroll, `→`/`l`/`Enter` to enter directories, `←`/`h`/`Backspace` to go back.
+*   **Sorting**: `n` (by name), `s` (by size), `C` (by item count), `M` (by modification time).
+*   **Toggles**: `a` (apparent size), `g` (graph & percent), `u` (shared hardlink size column), `c` (item count column), `m` (mtime column), `e` (hidden files).
+*   **Actions**: `d` to delete, `b` to spawn a shell, `r` to refresh, `i` for item info, `?` for help, `q` to quit.
+
+---
+
+## 🏗️ Codebase Architecture
+
+The project is designed with highly modular Rust packages:
+
+*   **`src/tree/`**: Allocates nodes inside a flat index-based `TreeArena`, removing recursive pointer overhead.
+*   **`src/scan/`**: Platform-specific system calls (Unix `libc` / Windows Win32 APIs) driving fast traversal algorithms.
+*   **`src/export/`**: Custom CBOR map serialization, index tables, and Zstandard compression algorithms.
+*   **`src/ui/`**: Drawing views and dialogs in `ratatui`.
+
+---
+
+## 🤝 Contributing
+
+Contributions, bug reports, and optimizations are welcome! Feel free to open issues or pull requests. Please make sure to follow the existing coding guidelines and format your code using `cargo fmt`.
+
+## 📜 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

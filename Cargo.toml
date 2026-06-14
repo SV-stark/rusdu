@@ -1,0 +1,40 @@
+[package]
+name = "rusdu"
+version = "0.1.0"
+edition = "2021"
+description = "Rust rewrite of ncdu — NCurses Disk Usage analyzer"
+license = "MIT"
+rust-version = "1.74"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+ratatui = { version = "0.26", features = ["crossterm"] }
+crossterm = { version = "0.27", features = ["event"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+zstd = "0.13"
+rayon = "1.8"
+jwalk = "0.8"
+bitflags = "2.4"
+glob = "0.3"
+dirs = "5.0"
+natord = "1.0.9"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+anyhow = "1.0"
+thiserror = "1.0"
+unicode-width = "0.1"
+log = "0.4"
+env_logger = "0.10"
+ciborium = "0.2"
+
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.27", features = ["fs", "process", "user"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_SystemServices"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
