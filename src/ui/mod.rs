@@ -4,7 +4,9 @@ mod theme;
 use crate::cli::Args;
 use crate::tree::{NodeId, TreeArena};
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyModifiers, MouseEvent, MouseEventKind, MouseButton};
+use crossterm::event::{
+    self, Event, KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
@@ -117,7 +119,9 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
                     }
 
                     // Global abort/exit checks
-                    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+                    if key.modifiers.contains(KeyModifiers::CONTROL)
+                        && key.code == KeyCode::Char('c')
+                    {
                         break;
                     }
 
