@@ -17,9 +17,6 @@ use clap::Parser;
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
-    // Initialize logging
-    env_logger::init();
-
     // Parse CLI arguments
     let mut args = cli::Args::parse();
 
@@ -28,6 +25,24 @@ fn main() -> Result<()> {
         if let Err(e) = config::load_config(&mut args) {
             eprintln!("Warning: failed to load configuration: {}", e);
         }
+    }
+
+    // Initialize logging
+    if let Some(ref log_path) = args.log_file {
+        match std::fs::File::create(log_path) {
+            Ok(file) => {
+                let mut builder = env_logger::Builder::new();
+                builder.target(env_logger::Target::Pipe(Box::new(file)));
+                builder.filter_level(log::LevelFilter::Info);
+                builder.init();
+            }
+            Err(e) => {
+                eprintln!("Warning: failed to create log file {:?}: {}", log_path, e);
+                env_logger::init();
+            }
+        }
+    } else {
+        env_logger::init();
     }
 
     // Determine target directory / path

@@ -180,7 +180,20 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
 
         // Format name
         let name_suffix = if child.is_dir() { "/" } else { "" };
-        let display_name = format!("{}{}", child.name, name_suffix);
+        let display_name = if state.show_icons {
+            let icon = if child.is_dir() {
+                " "
+            } else if child.flags.contains(EntryFlags::READ_ERROR) {
+                " "
+            } else if child.flags.contains(EntryFlags::NOT_REG) {
+                "󱘖 "
+            } else {
+                " "
+            };
+            format!("{}{}{}", icon, child.name, name_suffix)
+        } else {
+            format!("{}{}", child.name, name_suffix)
+        };
 
         // Combine fields
         let row_style = if idx == state.selected_idx {

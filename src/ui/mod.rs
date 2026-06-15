@@ -4,7 +4,7 @@ mod theme;
 use crate::cli::Args;
 use crate::tree::{NodeId, TreeArena};
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyModifiers, MouseEvent, MouseEventKind, MouseButton};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
@@ -28,6 +28,7 @@ pub struct AppState {
 
     // Active dialogs
     pub active_dialog: Dialog,
+    pub show_icons: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,7 +69,8 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
     crossterm::execute!(
         stdout,
         crossterm::terminal::EnterAlternateScreen,
-        crossterm::cursor::Hide
+        crossterm::cursor::Hide,
+        crossterm::event::EnableMouseCapture
     )?;
 
     let backend = CrosstermBackend::new(stdout);
@@ -98,6 +100,7 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
             _ => SharedColumnMode::Shared,
         },
         active_dialog: Dialog::None,
+        show_icons: args.icons,
         args,
     };
 
@@ -106,26 +109,32 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
         terminal.draw(|f| browser::draw(f, &mut state))?;
 
         if event::poll(std::time::Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                // Ignore key releases
-                if key.kind == event::KeyEventKind::Release {
-                    continue;
-                }
-
-                // Global abort/exit checks
-                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-                    break;
-                }
-
-                if state.active_dialog != Dialog::None {
-                    if handle_dialog_keys(key.code, &mut state)? {
+            match event::read()? {
+                Event::Key(key) => {
+                    // Ignore key releases
+                    if key.kind == event::KeyEventKind::Release {
                         continue;
                     }
-                } else {
-                    if handle_browser_keys(key.code, &mut state)? {
+
+                    // Global abort/exit checks
+                    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
                         break;
                     }
+
+                    if state.active_dialog != Dialog::None {
+                        if handle_dialog_keys(key.code, &mut state)? {
+                            continue;
+                        }
+                    } else {
+                        if handle_browser_keys(key.code, &mut state)? {
+                            break;
+                        }
+                    }
                 }
+                Event::Mouse(mouse) => {
+                    handle_mouse_event(mouse, &mut state)?;
+                }
+                _ => {}
             }
         }
     }
@@ -135,9 +144,52 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
     crossterm::execute!(
         terminal.backend_mut(),
         crossterm::terminal::LeaveAlternateScreen,
-        crossterm::cursor::Show
+        crossterm::cursor::Show,
+        crossterm::event::DisableMouseCapture
     )?;
 
+    Ok(())
+}
+
+fn handle_mouse_event(mouse: MouseEvent, state: &mut AppState) -> Result<()> {
+    if state.active_dialog != Dialog::None {
+        return Ok(());
+    }
+
+    let visible_children = get_visible_children(state, state.current_dir);
+
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            if state.selected_idx > 0 {
+                state.selected_idx -= 1;
+            }
+        }
+        MouseEventKind::ScrollDown => {
+            if !visible_children.is_empty() && state.selected_idx < visible_children.len() - 1 {
+                state.selected_idx += 1;
+            }
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            let list_row = mouse.row as usize;
+            if list_row >= 1 {
+                let clicked_idx = state.scroll_offset + (list_row - 1);
+                if clicked_idx < visible_children.len() {
+                    if state.selected_idx == clicked_idx {
+                        let selected_id = visible_children[state.selected_idx];
+                        if state.arena.get(selected_id).is_dir() {
+                            state.history.push((state.current_dir, state.selected_idx));
+                            state.current_dir = selected_id;
+                            state.selected_idx = 0;
+                            state.scroll_offset = 0;
+                        }
+                    } else {
+                        state.selected_idx = clicked_idx;
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
     Ok(())
 }
 

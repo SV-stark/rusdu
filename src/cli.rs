@@ -154,4 +154,12 @@ pub struct Args {
     /// Set color scheme: off, dark, dark-bg
     #[arg(long = "color", default_value = "off")]
     pub color: String,
+
+    /// Enable Nerd Font icons in TUI list
+    #[arg(long = "icons")]
+    pub icons: bool,
+
+    /// Log errors and scanning diagnostics to a file
+    #[arg(long = "log-file", value_name = "FILE")]
+    pub log_file: Option<PathBuf>,
 }
