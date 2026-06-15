@@ -1,6 +1,6 @@
 # 🦀 rusdu — Rust Disk Usage Analyzer
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
+[![Build Status](https://github.com/SV-stark/rusdu/actions/workflows/ci.yml/badge.svg)](https://github.com/SV-stark/rusdu/actions)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)](#)
 
@@ -97,10 +97,13 @@ rusdu [PATH] [OPTIONS]
 | `-t <N>` | `--threads <N>` | Set number of scanning threads (default: 1) |
 | `-e` | `--extended` | Enable extended info mode (mtime, uid, gid, mode) |
 | `-r` | | Read-only mode (`-r` disables deletes; `-rr` also disables shell) |
+| | `--icons` | Enable Nerd Font icons (folder/file glyphs) in TUI list |
+| | `--log-file <FILE>` | Log errors and scanning diagnostics to a file |
 
-### Interactive Keybindings in Browser
+### Interactive Keybindings & Mouse in Browser
 
-*   **Navigation**: `↑`/`↓` or `k`/`j` to scroll, `→`/`l`/`Enter` to enter directories, `←`/`h`/`Backspace` to go back.
+*   **Keyboard Navigation**: `↑`/`↓` or `k`/`j` to scroll, `→`/`l`/`Enter` to enter directories, `←`/`h`/`Backspace` to go back.
+*   **Mouse Interaction**: Scroll wheel to navigate, left-click to select, left-click on a selected directory (or double-click) to open it.
 *   **Sorting**: `n` (by name), `s` (by size), `C` (by item count), `M` (by modification time).
 *   **Toggles**: `a` (apparent size), `g` (graph & percent), `u` (shared hardlink size column), `c` (item count column), `m` (mtime column), `e` (hidden files).
 *   **Actions**: `d` to delete, `b` to spawn a shell, `r` to refresh, `i` for item info, `?` for help, `q` to quit.
