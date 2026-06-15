@@ -1,6 +1,6 @@
 use crate::scan::filter::Filter;
 use crate::scan::platform::get_metadata;
-use crate::scan::{ProgressMode, ScanOptions};
+use crate::scan::{update_progress, ProgressMode, ScanOptions, ScanStats};
 use crate::tree::{EntryFlags, NodeId, TreeArena, TreeNode};
 use anyhow::Result;
 use jwalk::{Parallelism, WalkDirGeneric};
@@ -38,8 +38,7 @@ pub fn scan_parallel(
     );
 
     let mut arena = TreeArena::new(root_node);
-    let mut stats_counter = 0u64;
-    let mut size_counter = 0i64;
+    let mut stats = ScanStats::default();
 
     // Use a HashMap to map paths to NodeId in the arena
     let mut path_to_id = HashMap::new();
@@ -107,8 +106,9 @@ pub fn scan_parallel(
             continue;
         }
 
-        stats_counter += 1;
-        size_counter += plat.dsize;
+        stats.items_scanned += 1;
+        stats.size_scanned += plat.dsize;
+        update_progress(&path, &mut stats, progress_mode);
 
         if entry.file_type.is_dir() {
             let child_node = TreeNode::new_dir(
@@ -141,24 +141,13 @@ pub fn scan_parallel(
             );
             arena.add_child(parent_id, child_node);
         }
-
-        // Print progress line
-        if progress_mode == ProgressMode::Line && stats_counter % 1000 == 0 {
-            let size_str = crate::format::format_size(size_counter, false);
-            eprint!(
-                "\rScanning parallelly: {} items [size: {}] | Current: {}",
-                stats_counter,
-                size_str,
-                path.to_string_lossy()
-            );
-        }
     }
 
     // Recalculate stats bottom-up
     crate::tree::stats::recalculate_stats(&mut arena);
 
     if progress_mode == ProgressMode::Line {
-        eprintln!("\nScan complete. Scanned {} items.", stats_counter);
+        eprintln!("\nScan complete. Scanned {} items.", stats.items_scanned);
     }
 
     Ok(arena)

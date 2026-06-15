@@ -1,6 +1,6 @@
 use crate::scan::filter::Filter;
 use crate::scan::platform::get_metadata;
-use crate::scan::{ProgressMode, ScanOptions};
+use crate::scan::{update_progress, ProgressMode, ScanOptions, ScanStats};
 use crate::tree::{EntryFlags, NodeId, TreeArena, TreeNode};
 use anyhow::Result;
 use std::fs;
@@ -59,13 +59,6 @@ pub fn scan_single_threaded(
     Ok(arena)
 }
 
-#[derive(Default)]
-struct ScanStats {
-    items_scanned: u64,
-    size_scanned: i64,
-    last_update: Option<std::time::Instant>,
-}
-
 fn walk_dir_recursive(
     arena: &mut TreeArena,
     parent_id: NodeId,
@@ -110,13 +103,13 @@ fn walk_dir_recursive(
         let meta = if opts.follow_symlinks {
             match fs::metadata(&path) {
                 Ok(m) => m,
-                Err(_) => match fs::symlink_metadata(&path) {
+                Err(_) => match entry.metadata() {
                     Ok(m) => m,
                     Err(_) => continue,
                 },
             }
         } else {
-            match fs::symlink_metadata(&path) {
+            match entry.metadata() {
                 Ok(m) => m,
                 Err(_) => continue,
             }
@@ -183,54 +176,4 @@ fn walk_dir_recursive(
     }
 
     Ok(())
-}
-
-fn update_progress(current_path: &Path, stats: &mut ScanStats, mode: ProgressMode) {
-    if mode == ProgressMode::Silent {
-        return;
-    }
-
-    let now = std::time::Instant::now();
-    if let Some(last) = stats.last_update {
-        if now.duration_since(last).as_millis() < 100 {
-            return;
-        }
-    }
-    stats.last_update = Some(now);
-
-    let path_str = current_path.to_string_lossy();
-    let truncated_path = if path_str.len() > 50 {
-        format!("...{}", &path_str[path_str.len() - 47..])
-    } else {
-        path_str.into_owned()
-    };
-
-    if mode == ProgressMode::Line {
-        let size_str = crate::format::format_size(stats.size_scanned, false);
-        eprint!(
-            "\rScanning: {} items [size: {}] | Current: {}",
-            stats.items_scanned, size_str, truncated_path
-        );
-        // Flush stdout/stderr
-        use std::io::Write;
-        let _ = std::io::stderr().flush();
-    } else if mode == ProgressMode::Fullscreen {
-        // In Fullscreen mode during active scan, we draw a TUI loading indicator.
-        // We'll clear the terminal and write a styled text block using crossterm.
-        use crossterm::{cursor, terminal, QueueableCommand};
-        let mut stderr = std::io::stderr();
-        let _ = stderr.queue(cursor::Hide);
-        let _ = stderr.queue(terminal::Clear(terminal::ClearType::All));
-        let _ = stderr.queue(cursor::MoveTo(0, 0));
-        let size_str = crate::format::format_size(stats.size_scanned, false);
-        let _ = writeln!(
-            stderr,
-            "rusdu {} ~ Scanning files...\n\n   Items scanned: {}\n   Total size   : {}\n   Scanning     : {}\n\nPress 'q' to abort.",
-            env!("CARGO_PKG_VERSION"),
-            stats.items_scanned,
-            size_str,
-            truncated_path
-        );
-        let _ = stderr.flush();
-    }
 }

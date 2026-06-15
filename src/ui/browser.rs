@@ -240,12 +240,16 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     f.render_widget(Paragraph::new(footer_text).style(theme.footer), chunks[2]);
 
     // 4. Draw Dialog Overlays
-    match &state.active_dialog {
-        Dialog::Help(page) => draw_help_dialog(f, *page, &theme),
-        Dialog::Info(node_id) => draw_info_dialog(f, state, *node_id, &theme),
-        Dialog::ConfirmDelete(node_id) => draw_confirm_delete(f, state, *node_id, &theme),
-        Dialog::ConfirmQuit => draw_confirm_quit(f, &theme),
-        Dialog::None => {}
+    if state.refreshing_rx.is_some() {
+        draw_refreshing_dialog(f, &theme);
+    } else {
+        match &state.active_dialog {
+            Dialog::Help(page) => draw_help_dialog(f, *page, &theme),
+            Dialog::Info(node_id) => draw_info_dialog(f, state, *node_id, &theme),
+            Dialog::ConfirmDelete(node_id) => draw_confirm_delete(f, state, *node_id, &theme),
+            Dialog::ConfirmQuit => draw_confirm_quit(f, &theme),
+            Dialog::None => {}
+        }
     }
 }
 
@@ -476,4 +480,24 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
+}
+
+fn draw_refreshing_dialog(f: &mut Frame, theme: &crate::ui::theme::Theme) {
+    let size = f.size();
+    let area = centered_rect(40, 15, size);
+
+    let mut text = Vec::new();
+    text.push(Line::from(""));
+    text.push(Line::from("  Refreshing directory..."));
+    text.push(Line::from("  Please wait."));
+
+    let block = Block::default()
+        .title(" Refreshing ")
+        .borders(Borders::ALL)
+        .border_style(theme.border)
+        .bg(Color::Black);
+
+    let paragraph = Paragraph::new(text).block(block);
+    f.render_widget(Clear, area);
+    f.render_widget(paragraph, area);
 }

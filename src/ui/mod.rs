@@ -31,6 +31,7 @@ pub struct AppState {
     // Active dialogs
     pub active_dialog: Dialog,
     pub show_icons: bool,
+    pub refreshing_rx: Option<std::sync::mpsc::Receiver<Result<TreeArena, String>>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,15 +104,36 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
         },
         active_dialog: Dialog::None,
         show_icons: args.icons,
+        refreshing_rx: None,
         args,
     };
 
     // Render loop
     loop {
+        // Check background refresh channel
+        if let Some(ref rx) = state.refreshing_rx {
+            if let Ok(res) = rx.try_recv() {
+                if let Ok(new_arena) = res {
+                    state.arena.get_mut(state.current_dir).children =
+                        new_arena.nodes[new_arena.root.0].children.clone();
+                    if state.current_dir == state.arena.root {
+                        state.arena = new_arena;
+                        state.selected_idx = 0;
+                        state.scroll_offset = 0;
+                    }
+                }
+                state.refreshing_rx = None;
+            }
+        }
+
         terminal.draw(|f| browser::draw(f, &mut state))?;
 
         if event::poll(std::time::Duration::from_millis(100))? {
-            match event::read()? {
+            let ev = event::read()?;
+            if state.refreshing_rx.is_some() {
+                continue;
+            }
+            match ev {
                 Event::Key(key) => {
                     // Ignore key releases
                     if key.kind == event::KeyEventKind::Release {
@@ -438,7 +460,7 @@ fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
         }
         KeyCode::Char('r') => {
             // Recalculate/refresh from disk if supported
-            if state.args.read_only < 1 {
+            if state.args.read_only < 1 && state.refreshing_rx.is_none() {
                 let current_path = get_node_path(&state.arena, state.current_dir);
                 let opts = crate::scan::ScanOptions {
                     one_file_system: state.args.one_file_system,
@@ -450,23 +472,17 @@ fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
                     threads: state.args.threads.unwrap_or(1),
                     extended: state.args.extended,
                 };
-                if let Ok(new_arena) = crate::scan::scan_directory(
-                    &current_path,
-                    opts,
-                    crate::scan::ProgressMode::Silent,
-                ) {
-                    // Replace children of current dir with newly scanned tree
-                    state.arena.get_mut(state.current_dir).children =
-                        new_arena.nodes[new_arena.root.0].children.clone();
-                    // Copy node data
-                    // For simplicity, let's just update the whole subtree or merge.
-                    // A simple refresh merges nodes or replaces the arena entirely. Let's merge or replace:
-                    // If refreshing from root, we can just replace the whole arena!
-                    if state.current_dir == state.arena.root {
-                        state.arena = new_arena;
-                        state.selected_idx = 0;
-                    }
-                }
+                let (tx, rx) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    let res = crate::scan::scan_directory(
+                        &current_path,
+                        opts,
+                        crate::scan::ProgressMode::Silent,
+                    )
+                    .map_err(|e| e.to_string());
+                    let _ = tx.send(res);
+                });
+                state.refreshing_rx = Some(rx);
             }
         }
         _ => {}
