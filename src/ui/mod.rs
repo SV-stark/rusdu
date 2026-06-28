@@ -32,6 +32,13 @@ pub struct AppState {
     pub active_dialog: Dialog,
     pub show_icons: bool,
     pub refreshing_rx: Option<std::sync::mpsc::Receiver<Result<TreeArena, String>>>,
+    pub visible_children: Vec<NodeId>,
+}
+
+impl AppState {
+    pub fn update_visible_children(&mut self) {
+        self.visible_children = get_visible_children(self, self.current_dir);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,7 +113,9 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
         show_icons: args.icons,
         refreshing_rx: None,
         args,
+        visible_children: Vec::new(),
     };
+    state.update_visible_children();
 
     // Render loop
     loop {
@@ -123,6 +132,7 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
                     }
                 }
                 state.refreshing_rx = None;
+                state.update_visible_children();
             }
         }
 
@@ -182,7 +192,7 @@ fn handle_mouse_event(mouse: MouseEvent, state: &mut AppState) -> Result<()> {
         return Ok(());
     }
 
-    let visible_children = get_visible_children(state, state.current_dir);
+    let visible_children = state.visible_children.clone();
 
     match mouse.kind {
         MouseEventKind::ScrollUp => {
@@ -207,6 +217,7 @@ fn handle_mouse_event(mouse: MouseEvent, state: &mut AppState) -> Result<()> {
                             state.current_dir = selected_id;
                             state.selected_idx = 0;
                             state.scroll_offset = 0;
+                            state.update_visible_children();
                         }
                     } else {
                         state.selected_idx = clicked_idx;
@@ -276,8 +287,9 @@ fn handle_dialog_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
                         state.arena.delete_node(node_id);
                         // Recalculate sizes
                         crate::tree::stats::recalculate_stats(&mut state.arena);
+                        state.update_visible_children();
                         // Reset cursor if out of bounds
-                        let items = get_visible_children(state, state.current_dir);
+                        let items = &state.visible_children;
                         if state.selected_idx >= items.len() && !items.is_empty() {
                             state.selected_idx = items.len() - 1;
                         }
@@ -307,7 +319,7 @@ fn handle_dialog_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
 }
 
 fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
-    let visible_children = get_visible_children(state, state.current_dir);
+    let visible_children = state.visible_children.clone();
 
     match code {
         // Navigation keys
@@ -360,6 +372,7 @@ fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
                     state.current_dir = selected_id;
                     state.selected_idx = 0;
                     state.scroll_offset = 0;
+                    state.update_visible_children();
                 }
             }
         }
@@ -368,6 +381,7 @@ fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
                 state.current_dir = parent_id;
                 state.selected_idx = prev_idx;
                 state.scroll_offset = 0;
+                state.update_visible_children();
             }
         }
 
@@ -375,28 +389,34 @@ fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
         KeyCode::Char('n') => {
             // Sort by name
             toggle_sort(state, "name");
+            state.update_visible_children();
         }
         KeyCode::Char('s') => {
             // Sort by size
             toggle_sort(state, "disk-usage");
+            state.update_visible_children();
         }
         KeyCode::Char('C') => {
             // Sort by item count
             toggle_sort(state, "itemcount");
+            state.update_visible_children();
         }
         KeyCode::Char('M') => {
             // Sort by mtime
             if state.args.extended {
                 toggle_sort(state, "mtime");
+                state.update_visible_children();
             }
         }
         KeyCode::Char('t') => {
             state.group_dirs_first = !state.group_dirs_first;
+            state.update_visible_children();
         }
 
         // UI Toggles
         KeyCode::Char('a') => {
             state.apparent_size = !state.apparent_size;
+            state.update_visible_children();
         }
         KeyCode::Char('g') => {
             state.graph_mode = match state.graph_mode {
@@ -423,6 +443,7 @@ fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
         }
         KeyCode::Char('e') => {
             state.show_hidden = !state.show_hidden;
+            state.update_visible_children();
         }
 
         // Dialogs & Actions
@@ -450,6 +471,7 @@ fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
                     );
                     state.arena.delete_node(selected_id);
                     crate::tree::stats::recalculate_stats(&mut state.arena);
+                    state.update_visible_children();
                 }
             }
         }

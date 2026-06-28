@@ -68,12 +68,6 @@ fn walk_dir_recursive(
     progress_mode: ProgressMode,
     stats: &mut ScanStats,
 ) -> Result<()> {
-    // Check if CACHEDIR.TAG is present
-    if filter.has_cachedir_tag(dir_path) {
-        arena.get_mut(parent_id).flags.insert(EntryFlags::EXCLUDED);
-        return Ok(());
-    }
-
     let entries = match fs::read_dir(dir_path) {
         Ok(e) => e,
         Err(_) => {
@@ -85,14 +79,27 @@ fn walk_dir_recursive(
         }
     };
 
+    let mut collected = Vec::new();
+    let mut tag_path = None;
+    for entry in entries {
+        if let Ok(e) = entry {
+            if opts.exclude_caches && e.file_name() == "CACHEDIR.TAG" {
+                tag_path = Some(e.path());
+            }
+            collected.push(e);
+        }
+    }
+
+    if let Some(path) = tag_path {
+        if filter.verify_cachedir_tag(&path) {
+            arena.get_mut(parent_id).flags.insert(EntryFlags::EXCLUDED);
+            return Ok(());
+        }
+    }
+
     let parent_dev = arena.get(parent_id).dev;
 
-    for entry in entries {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-
+    for entry in collected {
         let path = entry.path();
 
         // Exclude check

@@ -28,7 +28,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     f.render_widget(Paragraph::new(header_text).style(theme.header), chunks[0]);
 
     // 2. Draw Browser Body (File List)
-    let visible_children = get_visible_children(state, state.current_dir);
+    let visible_children = &state.visible_children;
     let mut list_items = Vec::new();
 
     // Find the largest size to scale the graph column

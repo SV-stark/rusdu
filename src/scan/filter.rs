@@ -51,12 +51,18 @@ impl Filter {
     }
 
     pub fn should_exclude_path(&self, path: &Path) -> bool {
+        if self.exclude_patterns.is_empty() && !self.exclude_kernfs {
+            return false;
+        }
+
         // 1. Check glob patterns on the filename or relative path
-        if let Some(file_name) = path.file_name() {
-            let file_name_str = file_name.to_string_lossy();
-            for pattern in &self.exclude_patterns {
-                if pattern.matches(&file_name_str) {
-                    return true;
+        if !self.exclude_patterns.is_empty() {
+            if let Some(file_name) = path.file_name() {
+                let file_name_str = file_name.to_string_lossy();
+                for pattern in &self.exclude_patterns {
+                    if pattern.matches(&file_name_str) {
+                        return true;
+                    }
                 }
             }
         }
@@ -77,13 +83,8 @@ impl Filter {
         false
     }
 
-    pub fn has_cachedir_tag(&self, dir_path: &Path) -> bool {
+    pub fn verify_cachedir_tag(&self, tag_file_path: &Path) -> bool {
         if !self.exclude_caches {
-            return false;
-        }
-
-        let tag_file_path = dir_path.join("CACHEDIR.TAG");
-        if !tag_file_path.exists() {
             return false;
         }
 
@@ -98,5 +99,18 @@ impl Filter {
         }
 
         false
+    }
+
+    pub fn has_cachedir_tag(&self, dir_path: &Path) -> bool {
+        if !self.exclude_caches {
+            return false;
+        }
+
+        let tag_file_path = dir_path.join("CACHEDIR.TAG");
+        if !tag_file_path.exists() {
+            return false;
+        }
+
+        self.verify_cachedir_tag(&tag_file_path)
     }
 }
