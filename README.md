@@ -1,5 +1,6 @@
 # 🦀 rusdu — Rust Disk Usage Analyzer
 
+[![Crates.io](https://img.shields.io/crates/v/rusdu.svg)](https://crates.io/crates/rusdu)
 [![Build Status](https://github.com/SV-stark/rusdu/actions/workflows/ci.yml/badge.svg)](https://github.com/SV-stark/rusdu/actions)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)](#)
@@ -69,10 +70,19 @@ You can download the latest pre-compiled binaries from the **[Nightly Releases](
 
 ---
 
-### Method 2: Build from Source
+### Method 2: Install via Cargo (Recommended for Rust users)
+You can install `rusdu` directly from [crates.io](https://crates.io/crates/rusdu) using `cargo`:
+```bash
+cargo install rusdu
+```
+Make sure your cargo bin directory (usually `~/.cargo/bin` on Unix/macOS or `%USERPROFILE%\.cargo\bin` on Windows) is in your system's `PATH`.
+
+---
+
+### Method 3: Build from Source
 If you prefer to compile manually:
 ```bash
-git clone https://github.com/yourusername/rusdu.git
+git clone https://github.com/SV-stark/rusdu.git
 cd rusdu
 cargo build --release
 ```
