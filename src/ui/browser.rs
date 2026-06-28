@@ -1,7 +1,8 @@
 use crate::tree::{EntryFlags, NodeId};
 use crate::ui::theme::get_theme;
 use crate::ui::{
-    get_node_path, get_visible_children, AppState, Dialog, GraphMode, HelpPage, SharedColumnMode,
+    get_node_path, get_visible_children, AppState, Dialog, DriveInfo, GraphMode, HelpPage,
+    SharedColumnMode,
 };
 use ratatui::prelude::*;
 use ratatui::widgets::*;
@@ -20,14 +21,33 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
 
     // 1. Draw Header
     let current_path = get_node_path(&state.arena, state.current_dir);
-    let header_text = format!(
-        " rusdu {} ~ {} [Use arrows to navigate, ? for help]",
+    let mut header_text = format!(
+        " rusdu {} ~ {}",
         env!("CARGO_PKG_VERSION"),
         current_path.to_string_lossy()
     );
+    if let Some(ref q) = state.filter_query {
+        header_text.push_str(&format!(" [Filter: {}]", q));
+    }
+    if state.fs_modified {
+        header_text.push_str(" [Disk Changed - Press 'r' to refresh]");
+    }
+    header_text.push_str(" [Use arrows to navigate, ? for help]");
+
     f.render_widget(Paragraph::new(header_text).style(theme.header), chunks[0]);
 
-    // 2. Draw Browser Body (File List)
+    // 2. Split Browser Body horizontally if preview is enabled
+    let (list_area, preview_area) = if state.show_preview {
+        let split = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+            .split(chunks[1]);
+        (split[0], Some(split[1]))
+    } else {
+        (chunks[1], None)
+    };
+
+    // Draw Browser Body (File List)
     let visible_children = &state.visible_children;
     let mut list_items = Vec::new();
 
@@ -64,7 +84,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     }
     .max(1);
 
-    let height = chunks[1].height as usize;
+    let height = list_area.height as usize;
     if height > 0 {
         if state.selected_idx < state.scroll_offset {
             state.scroll_offset = state.selected_idx;
@@ -225,7 +245,22 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     }
 
     let list = List::new(list_items).block(Block::default().borders(Borders::NONE));
-    f.render_widget(list, chunks[1]);
+    f.render_widget(list, list_area);
+
+    // Render Preview Pane if enabled
+    if let Some(area) = preview_area {
+        if !visible_children.is_empty() && state.selected_idx < visible_children.len() {
+            let selected_id = visible_children[state.selected_idx];
+            draw_sidebar_preview(f, state, selected_id, area, &theme);
+        } else {
+            let block = Block::default()
+                .title(" Preview ")
+                .borders(Borders::ALL)
+                .border_style(theme.border)
+                .bg(Color::Black);
+            f.render_widget(block, area);
+        }
+    }
 
     // 3. Draw Footer
     let current_dir_node = state.arena.get(state.current_dir);
@@ -248,6 +283,21 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
             Dialog::Info(node_id) => draw_info_dialog(f, state, *node_id, &theme),
             Dialog::ConfirmDelete(node_id) => draw_confirm_delete(f, state, *node_id, &theme),
             Dialog::ConfirmQuit => draw_confirm_quit(f, &theme),
+            Dialog::FilterInput(query) => draw_live_filter(f, query, &theme),
+            Dialog::FuzzySearch {
+                query,
+                results,
+                selected_idx,
+            } => draw_fuzzy_search(f, query, results, *selected_idx, &theme),
+            Dialog::DriveSelector {
+                drives,
+                selected_idx,
+            } => draw_drive_selector(f, state, drives, *selected_idx, &theme),
+            Dialog::ExtensionAnalytics {
+                stats,
+                selected_idx,
+                scroll_offset,
+            } => draw_extension_analytics(f, state, stats, *selected_idx, *scroll_offset, &theme),
             Dialog::None => {}
         }
     }
@@ -255,7 +305,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
 
 fn draw_help_dialog(f: &mut Frame, page: HelpPage, theme: &crate::ui::theme::Theme) {
     let size = f.size();
-    let area = centered_rect(75, 80, size);
+    let area = centered_rect(75, 90, size);
 
     let mut text = Vec::new();
     match page {
@@ -306,6 +356,16 @@ fn draw_help_dialog(f: &mut Frame, page: HelpPage, theme: &crate::ui::theme::The
             ));
             text.push(Line::from(
                 "  i              Show detailed info about selected item",
+            ));
+            text.push(Line::from("  /              Open live filter query input"));
+            text.push(Line::from("  f, Ctrl+F      Open global fuzzy search"));
+            text.push(Line::from(
+                "  Tab, p         Toggle sidebar file preview panel",
+            ));
+            text.push(Line::from("  v              Open disk/drive selector"));
+            text.push(Line::from("  E              Show file extension analytics"));
+            text.push(Line::from(
+                "  c, o, v        Custom actions (Copy path, Open folder, Open editor)",
             ));
             text.push(Line::from("  ?, F1          Open help screen"));
             text.push(Line::from("  q              Quit (or close dialog)"));
@@ -531,4 +591,284 @@ fn draw_refreshing_dialog(f: &mut Frame, theme: &crate::ui::theme::Theme) {
     let paragraph = Paragraph::new(text).block(block);
     f.render_widget(Clear, area);
     f.render_widget(paragraph, area);
+}
+
+fn draw_sidebar_preview(
+    f: &mut Frame,
+    state: &AppState,
+    node_id: NodeId,
+    area: Rect,
+    theme: &crate::ui::theme::Theme,
+) {
+    let node = state.arena.get(node_id);
+    let full_path = get_node_path(&state.arena, node_id);
+
+    let mut text = Vec::new();
+    text.push(Line::from(vec![
+        Span::styled("Name: ", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(node.name.to_string()),
+    ]));
+    text.push(Line::from(vec![
+        Span::styled("Type: ", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(if node.is_dir() {
+            "Directory"
+        } else {
+            "Regular File"
+        }),
+    ]));
+    text.push(Line::from(vec![
+        Span::styled("Size: ", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(crate::format::format_size(node.asize, state.si)),
+    ]));
+    text.push(Line::from(vec![
+        Span::styled("Disk: ", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(crate::format::format_size(node.dsize, state.si)),
+    ]));
+
+    if node.is_dir() {
+        text.push(Line::from(vec![
+            Span::styled("Items: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(node.stats.item_count.to_string()),
+        ]));
+        text.push(Line::from(vec![
+            Span::styled("Files: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(node.stats.file_count.to_string()),
+        ]));
+        text.push(Line::from(vec![
+            Span::styled("Dirs:  ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(node.stats.dir_count.to_string()),
+        ]));
+    }
+
+    if let Some(ref ext) = node.extended {
+        text.push(Line::from(vec![
+            Span::styled("Owner: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(format!("{} / {}", ext.uid, ext.gid)),
+        ]));
+        text.push(Line::from(vec![
+            Span::styled("Perms: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(format!("{:o}", ext.mode)),
+        ]));
+        text.push(Line::from(vec![
+            Span::styled("MTime: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(
+                chrono::DateTime::from_timestamp(ext.mtime, 0)
+                    .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
+                    .unwrap_or_else(|| "Unknown".to_string()),
+            ),
+        ]));
+    }
+
+    // Add visual line separator
+    text.push(Line::from("-".repeat(area.width as usize)));
+
+    // File contents preview
+    if !node.is_dir() {
+        text.push(Line::from(Span::styled(
+            "--- File Preview ---",
+            Style::default().fg(Color::Yellow),
+        )));
+        let preview = read_file_preview(&full_path);
+        for line in preview.lines() {
+            text.push(Line::from(line.to_string()));
+        }
+    }
+
+    let block = Block::default()
+        .title(" Preview ")
+        .borders(Borders::ALL)
+        .border_style(theme.border)
+        .bg(Color::Black);
+
+    let paragraph = Paragraph::new(text).block(block);
+    f.render_widget(Clear, area);
+    f.render_widget(paragraph, area);
+}
+
+fn read_file_preview(path: &std::path::Path) -> String {
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+    if let Ok(file) = File::open(path) {
+        let reader = BufReader::new(file);
+        let mut lines = Vec::new();
+        for line in reader.lines().take(15) {
+            if let Ok(l) = line {
+                if l.len() > 40 {
+                    lines.push(format!("{}...", &l[..40]));
+                } else {
+                    lines.push(l);
+                }
+            } else {
+                break;
+            }
+        }
+        if lines.is_empty() {
+            return "[Empty file or binary data]".to_string();
+        }
+        return lines.join("\n");
+    }
+    "[Preview not available]".to_string()
+}
+
+fn draw_fuzzy_search(
+    f: &mut Frame,
+    query: &str,
+    results: &[(NodeId, String)],
+    selected_idx: usize,
+    theme: &crate::ui::theme::Theme,
+) {
+    let size = f.size();
+    let area = centered_rect(80, 80, size);
+
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Input query block
+            Constraint::Min(3),    // Results list
+        ])
+        .split(area);
+
+    let input_block = Block::default()
+        .title(" Fuzzy Search Query ")
+        .borders(Borders::ALL)
+        .border_style(theme.border)
+        .bg(Color::Black);
+
+    let input_paragraph = Paragraph::new(format!("> {}", query)).block(input_block);
+    f.render_widget(Clear, popup_layout[0]);
+    f.render_widget(input_paragraph, popup_layout[0]);
+
+    let results_block = Block::default()
+        .title(" Matching Items (Max 50) ")
+        .borders(Borders::ALL)
+        .border_style(theme.border)
+        .bg(Color::Black);
+
+    let mut list_items = Vec::new();
+    for (i, res) in results.iter().enumerate() {
+        let style = if i == selected_idx {
+            theme.selected
+        } else {
+            theme.file
+        };
+        list_items.push(ListItem::new(res.1.clone()).style(style));
+    }
+
+    let list = List::new(list_items).block(results_block);
+    f.render_widget(Clear, popup_layout[1]);
+    f.render_widget(list, popup_layout[1]);
+}
+
+fn draw_live_filter(f: &mut Frame, query: &str, theme: &crate::ui::theme::Theme) {
+    let size = f.size();
+    let area = centered_rect(50, 20, size);
+
+    let text = vec![
+        Line::from("Type filter query (case-insensitive substring):"),
+        Line::from(Span::styled(
+            format!("  / {}", query),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from("(Press Enter to apply, Esc to clear & cancel)"),
+    ];
+
+    let block = Block::default()
+        .title(" Live Filter ")
+        .borders(Borders::ALL)
+        .border_style(theme.border)
+        .bg(Color::Black);
+
+    let paragraph = Paragraph::new(text).block(block);
+    f.render_widget(Clear, area);
+    f.render_widget(paragraph, area);
+}
+
+fn draw_drive_selector(
+    f: &mut Frame,
+    state: &AppState,
+    drives: &[DriveInfo],
+    selected_idx: usize,
+    theme: &crate::ui::theme::Theme,
+) {
+    let size = f.size();
+    let area = centered_rect(65, 55, size);
+
+    let mut list_items = Vec::new();
+    for (i, drive) in drives.iter().enumerate() {
+        let line = format!(
+            "  {:<15} [{}] (Free: {} / Total: {})",
+            drive.name,
+            drive.mount_point.display(),
+            crate::format::format_size(drive.available_space as i64, state.si),
+            crate::format::format_size(drive.total_space as i64, state.si)
+        );
+        let style = if i == selected_idx {
+            theme.selected
+        } else {
+            theme.dir
+        };
+        list_items.push(ListItem::new(line).style(style));
+    }
+
+    let block = Block::default()
+        .title(" Select Disk/Drive to Scan ")
+        .borders(Borders::ALL)
+        .border_style(theme.border)
+        .bg(Color::Black);
+
+    let list = List::new(list_items).block(block);
+    f.render_widget(Clear, area);
+    f.render_widget(list, area);
+}
+
+fn draw_extension_analytics(
+    f: &mut Frame,
+    state: &AppState,
+    stats: &[(String, u64)],
+    selected_idx: usize,
+    scroll_offset: usize,
+    theme: &crate::ui::theme::Theme,
+) {
+    let size = f.size();
+    let area = centered_rect(70, 60, size);
+
+    let mut list_items = Vec::new();
+    let total_ext_size: u64 = stats.iter().map(|s| s.1).sum();
+
+    let height = 10;
+    let end_idx = (scroll_offset + height).min(stats.len());
+
+    for idx in scroll_offset..end_idx {
+        let (ext, size_val) = &stats[idx];
+        let pct = if total_ext_size > 0 {
+            (*size_val as f64 / total_ext_size as f64) * 100.0
+        } else {
+            0.0
+        };
+        let line = format!(
+            "  {:<18} {:>12} ({:>5.1}%)",
+            ext,
+            crate::format::format_size(*size_val as i64, state.si),
+            pct
+        );
+        let style = if idx == selected_idx {
+            theme.selected
+        } else {
+            theme.file
+        };
+        list_items.push(ListItem::new(line).style(style));
+    }
+
+    let block = Block::default()
+        .title(" Extension Space Distribution ")
+        .borders(Borders::ALL)
+        .border_style(theme.border)
+        .bg(Color::Black);
+
+    let list = List::new(list_items).block(block);
+    f.render_widget(Clear, area);
+    f.render_widget(list, area);
 }

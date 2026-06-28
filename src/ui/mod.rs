@@ -1,3 +1,4 @@
+mod actions;
 mod browser;
 mod theme;
 
@@ -9,6 +10,14 @@ use crossterm::event::{
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DriveInfo {
+    pub name: String,
+    pub mount_point: std::path::PathBuf,
+    pub total_space: u64,
+    pub available_space: u64,
+}
 
 pub struct AppState {
     pub arena: TreeArena,
@@ -33,11 +42,45 @@ pub struct AppState {
     pub show_icons: bool,
     pub refreshing_rx: Option<std::sync::mpsc::Receiver<Result<TreeArena, String>>>,
     pub visible_children: Vec<NodeId>,
+
+    // New features state
+    pub custom_actions: std::collections::HashMap<char, String>,
+    pub filter_query: Option<String>,
+    pub show_preview: bool,
+    pub fs_modified: bool,
+    pub watcher: Option<notify::RecommendedWatcher>,
+    pub watcher_rx: Option<std::sync::mpsc::Receiver<notify::Result<notify::Event>>>,
 }
 
 impl AppState {
     pub fn update_visible_children(&mut self) {
         self.visible_children = get_visible_children(self, self.current_dir);
+    }
+
+    pub fn setup_watcher(&mut self) {
+        self.watcher = None;
+        self.watcher_rx = None;
+        self.fs_modified = false;
+
+        let current_path = get_node_path(&self.arena, self.current_dir);
+        if !current_path.exists() {
+            return;
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        use notify::Watcher;
+        let watcher_res = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            let _ = tx.send(res);
+        });
+
+        if let Ok(mut w) = watcher_res {
+            if w.watch(&current_path, notify::RecursiveMode::NonRecursive)
+                .is_ok()
+            {
+                self.watcher = Some(w);
+                self.watcher_rx = Some(rx);
+            }
+        }
     }
 }
 
@@ -63,6 +106,21 @@ pub enum Dialog {
     Info(NodeId),
     ConfirmDelete(NodeId),
     ConfirmQuit,
+    FilterInput(String),
+    FuzzySearch {
+        query: String,
+        results: Vec<(NodeId, String)>,
+        selected_idx: usize,
+    },
+    DriveSelector {
+        drives: Vec<DriveInfo>,
+        selected_idx: usize,
+    },
+    ExtensionAnalytics {
+        stats: Vec<(String, u64)>,
+        selected_idx: usize,
+        scroll_offset: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,11 +172,27 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
         refreshing_rx: None,
         args,
         visible_children: Vec::new(),
+        custom_actions: actions::load_custom_actions(),
+        filter_query: None,
+        show_preview: false,
+        fs_modified: false,
+        watcher: None,
+        watcher_rx: None,
     };
     state.update_visible_children();
+    state.setup_watcher();
 
     // Render loop
     loop {
+        // Check filesystem watcher channel
+        if let Some(ref rx) = state.watcher_rx {
+            if let Ok(Ok(event)) = rx.try_recv() {
+                if event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove() {
+                    state.fs_modified = true;
+                }
+            }
+        }
+
         // Check background refresh channel
         if let Some(ref rx) = state.refreshing_rx {
             if let Ok(res) = rx.try_recv() {
@@ -133,6 +207,7 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
                 }
                 state.refreshing_rx = None;
                 state.update_visible_children();
+                state.setup_watcher();
             }
         }
 
@@ -162,7 +237,7 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
                             continue;
                         }
                     } else {
-                        if handle_browser_keys(key.code, &mut state)? {
+                        if handle_browser_keys(key, &mut state)? {
                             break;
                         }
                     }
@@ -313,15 +388,219 @@ fn handle_dialog_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
                 _ => {}
             }
         }
+        Dialog::FilterInput(query) => {
+            let mut q = query.clone();
+            match code {
+                KeyCode::Esc => {
+                    state.filter_query = None;
+                    state.active_dialog = Dialog::None;
+                    state.update_visible_children();
+                }
+                KeyCode::Enter => {
+                    if q.trim().is_empty() {
+                        state.filter_query = None;
+                    } else {
+                        state.filter_query = Some(q);
+                    }
+                    state.active_dialog = Dialog::None;
+                    state.update_visible_children();
+                }
+                KeyCode::Backspace => {
+                    q.pop();
+                    state.active_dialog = Dialog::FilterInput(q);
+                }
+                KeyCode::Char(c) => {
+                    q.push(c);
+                    state.active_dialog = Dialog::FilterInput(q);
+                }
+                _ => {}
+            }
+        }
+        Dialog::FuzzySearch {
+            query,
+            results,
+            selected_idx,
+        } => {
+            let mut q = query.clone();
+            let mut res = results.clone();
+            let mut sel = *selected_idx;
+            match code {
+                KeyCode::Esc => {
+                    state.active_dialog = Dialog::None;
+                }
+                KeyCode::Enter => {
+                    if sel < res.len() {
+                        let target_id = res[sel].0;
+                        state.active_dialog = Dialog::None;
+                        jump_to_node(state, target_id);
+                    } else {
+                        state.active_dialog = Dialog::None;
+                    }
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if sel > 0 {
+                        sel -= 1;
+                        state.active_dialog = Dialog::FuzzySearch {
+                            query: q,
+                            results: res,
+                            selected_idx: sel,
+                        };
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if !res.is_empty() && sel < res.len() - 1 {
+                        sel += 1;
+                        state.active_dialog = Dialog::FuzzySearch {
+                            query: q,
+                            results: res,
+                            selected_idx: sel,
+                        };
+                    }
+                }
+                KeyCode::Backspace => {
+                    q.pop();
+                    let updated_results = update_fuzzy_results(&state.arena, &q);
+                    state.active_dialog = Dialog::FuzzySearch {
+                        query: q,
+                        results: updated_results,
+                        selected_idx: 0,
+                    };
+                }
+                KeyCode::Char(c) => {
+                    q.push(c);
+                    let updated_results = update_fuzzy_results(&state.arena, &q);
+                    state.active_dialog = Dialog::FuzzySearch {
+                        query: q,
+                        results: updated_results,
+                        selected_idx: 0,
+                    };
+                }
+                _ => {}
+            }
+        }
+        Dialog::DriveSelector {
+            drives,
+            selected_idx,
+        } => {
+            let mut sel = *selected_idx;
+            match code {
+                KeyCode::Esc | KeyCode::Char('q') => {
+                    state.active_dialog = Dialog::None;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if sel > 0 {
+                        sel -= 1;
+                        state.active_dialog = Dialog::DriveSelector {
+                            drives: drives.clone(),
+                            selected_idx: sel,
+                        };
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if !drives.is_empty() && sel < drives.len() - 1 {
+                        sel += 1;
+                        state.active_dialog = Dialog::DriveSelector {
+                            drives: drives.clone(),
+                            selected_idx: sel,
+                        };
+                    }
+                }
+                KeyCode::Enter => {
+                    if sel < drives.len() {
+                        let path = drives[sel].mount_point.clone();
+                        state.active_dialog = Dialog::None;
+                        state.history.clear();
+                        state.selected_idx = 0;
+                        state.scroll_offset = 0;
+
+                        // Spawn background rescan of this drive
+                        let opts = crate::scan::ScanOptions {
+                            one_file_system: state.args.one_file_system,
+                            exclude_patterns: state.args.exclude.clone(),
+                            exclude_from: state.args.exclude_from.clone(),
+                            exclude_caches: state.args.exclude_caches,
+                            exclude_kernfs: state.args.exclude_kernfs,
+                            follow_symlinks: state.args.follow_symlinks,
+                            threads: state.args.threads.unwrap_or(1),
+                            extended: state.args.extended,
+                        };
+                        let (tx, rx) = std::sync::mpsc::channel();
+                        std::thread::spawn(move || {
+                            let res = crate::scan::scan_directory(
+                                &path,
+                                opts,
+                                crate::scan::ProgressMode::Silent,
+                            )
+                            .map_err(|e| e.to_string());
+                            let _ = tx.send(res);
+                        });
+                        state.refreshing_rx = Some(rx);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Dialog::ExtensionAnalytics {
+            stats,
+            selected_idx,
+            scroll_offset,
+        } => {
+            let mut sel = *selected_idx;
+            let mut scroll = *scroll_offset;
+            match code {
+                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter => {
+                    state.active_dialog = Dialog::None;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if sel > 0 {
+                        sel -= 1;
+                        if sel < scroll {
+                            scroll = sel;
+                        }
+                        state.active_dialog = Dialog::ExtensionAnalytics {
+                            stats: stats.clone(),
+                            selected_idx: sel,
+                            scroll_offset: scroll,
+                        };
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if !stats.is_empty() && sel < stats.len() - 1 {
+                        sel += 1;
+                        if sel >= scroll + 10 {
+                            scroll = sel - 10 + 1;
+                        }
+                        state.active_dialog = Dialog::ExtensionAnalytics {
+                            stats: stats.clone(),
+                            selected_idx: sel,
+                            scroll_offset: scroll,
+                        };
+                    }
+                }
+                _ => {}
+            }
+        }
         Dialog::None => {}
     }
     Ok(true)
 }
 
-fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
+fn handle_browser_keys(key: event::KeyEvent, state: &mut AppState) -> Result<bool> {
     let visible_children = state.visible_children.clone();
 
-    match code {
+    // Check Ctrl+F or 'f' for global fuzzy search
+    let is_ctrl_f = key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('f');
+    let is_f = key.code == KeyCode::Char('f');
+    if is_ctrl_f || is_f {
+        state.active_dialog = Dialog::FuzzySearch {
+            query: String::new(),
+            results: Vec::new(),
+            selected_idx: 0,
+        };
+        return Ok(false);
+    }
+
+    match key.code {
         // Navigation keys
         KeyCode::Char('q') => {
             if state.args.confirm_quit {
@@ -373,6 +652,7 @@ fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
                     state.selected_idx = 0;
                     state.scroll_offset = 0;
                     state.update_visible_children();
+                    state.setup_watcher();
                 }
             }
         }
@@ -382,27 +662,71 @@ fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
                 state.selected_idx = prev_idx;
                 state.scroll_offset = 0;
                 state.update_visible_children();
+                state.setup_watcher();
             }
+        }
+
+        // Live filter
+        KeyCode::Char('/') => {
+            state.active_dialog = Dialog::FilterInput(String::new());
+        }
+
+        // Preview panel toggling
+        KeyCode::Tab | KeyCode::Char('p') => {
+            state.show_preview = !state.show_preview;
+        }
+
+        // Disk/Drive Selector
+        KeyCode::Char('v') => {
+            use sysinfo::Disks;
+            let disks = Disks::new_with_refreshed_list();
+            let mut drives = Vec::new();
+            for disk in &disks {
+                let name = disk.name().to_string_lossy().into_owned();
+                let mount_point = disk.mount_point().to_path_buf();
+                let total_space = disk.total_space();
+                let available_space = disk.available_space();
+                drives.push(DriveInfo {
+                    name: if name.is_empty() {
+                        "Local Disk".to_string()
+                    } else {
+                        name
+                    },
+                    mount_point,
+                    total_space,
+                    available_space,
+                });
+            }
+            state.active_dialog = Dialog::DriveSelector {
+                drives,
+                selected_idx: 0,
+            };
+        }
+
+        // Extension analytics
+        KeyCode::Char('E') => {
+            let stats = calculate_extension_stats(&state.arena, state.current_dir);
+            state.active_dialog = Dialog::ExtensionAnalytics {
+                stats,
+                selected_idx: 0,
+                scroll_offset: 0,
+            };
         }
 
         // Sorting toggles
         KeyCode::Char('n') => {
-            // Sort by name
             toggle_sort(state, "name");
             state.update_visible_children();
         }
         KeyCode::Char('s') => {
-            // Sort by size
             toggle_sort(state, "disk-usage");
             state.update_visible_children();
         }
         KeyCode::Char('C') => {
-            // Sort by item count
             toggle_sort(state, "itemcount");
             state.update_visible_children();
         }
         KeyCode::Char('M') => {
-            // Sort by mtime
             if state.args.extended {
                 toggle_sort(state, "mtime");
                 state.update_visible_children();
@@ -461,7 +785,6 @@ fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
                 if state.args.confirm_delete {
                     state.active_dialog = Dialog::ConfirmDelete(selected_id);
                 } else {
-                    // Delete immediately
                     let item_path = get_node_path(&state.arena, selected_id);
                     let read_only = state.args.read_only >= 1;
                     let _ = crate::delete::delete_item(
@@ -481,7 +804,6 @@ fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
             let _ = crate::shell::spawn_shell(&current_path, read_only);
         }
         KeyCode::Char('r') => {
-            // Recalculate/refresh from disk if supported
             if state.args.read_only < 1 && state.refreshing_rx.is_none() {
                 let current_path = get_node_path(&state.arena, state.current_dir);
                 let opts = crate::scan::ScanOptions {
@@ -505,6 +827,17 @@ fn handle_browser_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
                     let _ = tx.send(res);
                 });
                 state.refreshing_rx = Some(rx);
+            }
+        }
+        KeyCode::Char(c) => {
+            if let Some(cmd) = state.custom_actions.get(&c).cloned() {
+                if !visible_children.is_empty() {
+                    let selected_id = visible_children[state.selected_idx];
+                    let selected_path = get_node_path(&state.arena, selected_id);
+                    let _ = actions::execute_custom_action(&cmd, &selected_path);
+                    state.update_visible_children();
+                    state.setup_watcher();
+                }
             }
         }
         _ => {}
@@ -533,6 +866,15 @@ pub fn get_visible_children(state: &AppState, dir_id: NodeId) -> Vec<NodeId> {
         children.retain(|&id| {
             let child = state.arena.get(id);
             !child.flags.contains(crate::tree::EntryFlags::EXCLUDED)
+        });
+    }
+
+    // Filter by live query if active
+    if let Some(ref query) = state.filter_query {
+        let query_lower = query.to_lowercase();
+        children.retain(|&id| {
+            let child = state.arena.get(id);
+            child.name.to_lowercase().contains(&query_lower)
         });
     }
 
@@ -628,4 +970,133 @@ pub fn get_node_path(arena: &TreeArena, node_id: NodeId) -> std::path::PathBuf {
         path.push(comp);
     }
     path
+}
+
+fn fuzzy_match(text: &str, query: &str) -> bool {
+    let mut text_chars = text.chars().flat_map(|c| c.to_lowercase());
+    for q_char in query.chars().flat_map(|c| c.to_lowercase()) {
+        if text_chars
+            .by_ref()
+            .find(|&t_char| t_char == q_char)
+            .is_none()
+        {
+            return false;
+        }
+    }
+    true
+}
+
+fn update_fuzzy_results(arena: &TreeArena, query: &str) -> Vec<(NodeId, String)> {
+    if query.trim().is_empty() {
+        return Vec::new();
+    }
+    let mut results = Vec::new();
+    let mut stack = vec![(arena.root, String::new())];
+    while let Some((node_id, parent_path)) = stack.pop() {
+        let node = arena.get(node_id);
+
+        let current_path = if parent_path.is_empty() {
+            node.name.to_string()
+        } else {
+            format!("{}/{}", parent_path, node.name)
+        };
+
+        if fuzzy_match(&node.name, query) || fuzzy_match(&current_path, query) {
+            results.push((node_id, current_path.clone()));
+        }
+
+        if node.is_dir() {
+            for &child_id in &node.children {
+                stack.push((child_id, current_path.clone()));
+            }
+        }
+    }
+    results.truncate(50);
+    results
+}
+
+fn jump_to_node(state: &mut AppState, target_id: NodeId) {
+    let mut path_nodes = Vec::new();
+    let mut curr = target_id;
+
+    loop {
+        path_nodes.push(curr);
+        if let Some(parent) = state.arena.get(curr).parent {
+            curr = parent;
+        } else {
+            break;
+        }
+    }
+    path_nodes.reverse();
+
+    state.history.clear();
+    state.current_dir = state.arena.root;
+    state.selected_idx = 0;
+    state.scroll_offset = 0;
+
+    let (target_dir, focus_id) = if state.arena.get(target_id).is_dir() {
+        (target_id, None)
+    } else {
+        let parent = state
+            .arena
+            .get(target_id)
+            .parent
+            .unwrap_or(state.arena.root);
+        (parent, Some(target_id))
+    };
+
+    let mut curr_dir = state.arena.root;
+    for &next_id in &path_nodes {
+        if next_id == state.arena.root {
+            continue;
+        }
+        if next_id == target_dir && focus_id.is_some() {
+            break;
+        }
+        if state.arena.get(curr_dir).is_dir() {
+            state.current_dir = curr_dir;
+            state.update_visible_children();
+            let children = state.visible_children.clone();
+            if let Some(idx) = children.iter().position(|&id| id == next_id) {
+                state.history.push((curr_dir, idx));
+            }
+            curr_dir = next_id;
+        }
+    }
+
+    state.current_dir = target_dir;
+    state.update_visible_children();
+    if let Some(fid) = focus_id {
+        if let Some(idx) = state.visible_children.iter().position(|&id| id == fid) {
+            state.selected_idx = idx;
+        } else {
+            state.selected_idx = 0;
+        }
+    } else {
+        state.selected_idx = 0;
+    }
+    state.scroll_offset = 0;
+    state.setup_watcher();
+}
+
+fn calculate_extension_stats(arena: &TreeArena, dir_id: NodeId) -> Vec<(String, u64)> {
+    let mut ext_sizes = std::collections::HashMap::new();
+    let mut stack = vec![dir_id];
+    while let Some(node_id) = stack.pop() {
+        let node = arena.get(node_id);
+        if node.is_dir() {
+            for &child_id in &node.children {
+                stack.push(child_id);
+            }
+        } else {
+            let ext = std::path::Path::new(&*node.name)
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_else(|| "no extension".to_string());
+            *ext_sizes.entry(ext).or_insert(0) += node.dsize as u64;
+        }
+    }
+    let mut list: Vec<(String, u64)> = ext_sizes.into_iter().collect();
+    list.sort_by(|a, b| b.1.cmp(&a.1));
+    list
 }

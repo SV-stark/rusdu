@@ -116,7 +116,15 @@ rusdu [PATH] [OPTIONS]
 *   **Mouse Interaction**: Scroll wheel to navigate, left-click to select, left-click on a selected directory (or double-click) to open it.
 *   **Sorting**: `n` (by name), `s` (by size), `C` (by item count), `M` (by modification time), `t` (toggle group directories first).
 *   **Toggles**: `a` (apparent size), `g` (graph & percent), `u` (shared hardlink size column), `c` (item count column), `m` (mtime column), `e` (hidden files).
-*   **Actions**: `d` to delete, `b` to spawn a shell, `r` to refresh, `i` for item info, `?`/`F1` for help, `q` to quit.
+*   **Advanced Features**:
+    *   `/` — **Live Interactive Filter**: Filters the current list by a case-insensitive query string.
+    *   `f` / `Ctrl+F` — **Global Fuzzy Search**: Recursively fuzzy matches paths tree-wide and allows direct jumps.
+    *   `Tab` / `p` — **Sidebar File Preview Panel**: Toggles a side panel showing metadata, owner info, permissions, and file content previews.
+    *   `v` — **Disk & Drive Selector**: Opens a list of logical system disks/drives to scan and select from.
+    *   `E` (Shift+E) — **Extension Analytics**: Displays recursive file extension space-usage distribution tables and percentages.
+    *   **Custom Actions & Shell Piping**: Runs custom commands with absolute paths (default bindings: `c` to copy path to clipboard, `o` to reveal in system file manager, `v` to open in editor). Add customized actions in `~/.config/rusdu/actions.conf` (Unix) or `%APPDATA%\rusdu\actions.conf` (Windows) using the format `<key>=<command>` (e.g., `e=nvim`).
+*   **Real-time File Watcher**: Automatically monitors the currently browsed directory for modifications. If a background change is detected, a yellow/red `[Disk Changed - Press 'r' to refresh]` badge appears in the header.
+*   **Standard Actions**: `d` to delete, `b` to spawn a shell, `r` to refresh, `i` for item info, `?`/`F1` for help, `q` to quit.
 
 ---
 
