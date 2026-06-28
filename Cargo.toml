@@ -5,6 +5,9 @@ edition = "2021"
 description = "Rust rewrite of ncdu — NCurses Disk Usage analyzer"
 license = "MIT"
 rust-version = "1.74"
+repository = "https://github.com/SV-stark/rusdu"
+homepage = "https://github.com/SV-stark/rusdu"
+exclude = ["rusdu_rewrite_plan.md", ".github/**"]
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
