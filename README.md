@@ -112,11 +112,11 @@ rusdu [PATH] [OPTIONS]
 
 ### Interactive Keybindings & Mouse in Browser
 
-*   **Keyboard Navigation**: `↑`/`↓` or `k`/`j` to scroll, `→`/`l`/`Enter` to enter directories, `←`/`h`/`Backspace` to go back.
+*   **Keyboard Navigation**: `↑`/`↓` or `k`/`j` to scroll, `→`/`l`/`Enter` to enter directories, `←`/`h`/`Backspace` to go back, `Page Up`/`Page Down` to scroll by 10 items, and `Home`/`End` to jump to the top/bottom.
 *   **Mouse Interaction**: Scroll wheel to navigate, left-click to select, left-click on a selected directory (or double-click) to open it.
-*   **Sorting**: `n` (by name), `s` (by size), `C` (by item count), `M` (by modification time).
+*   **Sorting**: `n` (by name), `s` (by size), `C` (by item count), `M` (by modification time), `t` (toggle group directories first).
 *   **Toggles**: `a` (apparent size), `g` (graph & percent), `u` (shared hardlink size column), `c` (item count column), `m` (mtime column), `e` (hidden files).
-*   **Actions**: `d` to delete, `b` to spawn a shell, `r` to refresh, `i` for item info, `?` for help, `q` to quit.
+*   **Actions**: `d` to delete, `b` to spawn a shell, `r` to refresh, `i` for item info, `?`/`F1` for help, `q` to quit.
 
 ---
 

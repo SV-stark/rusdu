@@ -255,7 +255,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
 
 fn draw_help_dialog(f: &mut Frame, page: HelpPage, theme: &crate::ui::theme::Theme) {
     let size = f.size();
-    let area = centered_rect(60, 60, size);
+    let area = centered_rect(75, 80, size);
 
     let mut text = Vec::new();
     match page {
@@ -264,20 +264,51 @@ fn draw_help_dialog(f: &mut Frame, page: HelpPage, theme: &crate::ui::theme::The
                 Span::styled("Keys  ", Style::default().add_modifier(Modifier::BOLD)),
                 Span::raw("   Format     About\n\n"),
             ]));
-            text.push(Line::from("  Up, k       Move cursor up"));
-            text.push(Line::from("  Down, j     Move cursor down"));
-            text.push(Line::from("  Right, Enter Open directory"));
-            text.push(Line::from("  Left, Backspace Parent directory"));
-            text.push(Line::from("  n           Sort by name (desc/asc)"));
-            text.push(Line::from("  s           Sort by size (desc/asc)"));
-            text.push(Line::from("  C           Sort by items (desc/asc)"));
-            text.push(Line::from("  M           Sort by mtime (desc/asc)"));
-            text.push(Line::from("  d           Delete selected item"));
-            text.push(Line::from("  b           Spawn shell in current dir"));
-            text.push(Line::from("  r           Refresh directory"));
-            text.push(Line::from("  a           Toggle apparent/disk size"));
-            text.push(Line::from("  g           Toggle percentage/graph"));
-            text.push(Line::from("  q           Quit rusdu"));
+            text.push(Line::from("  k, Up          Move cursor up"));
+            text.push(Line::from("  j, Down        Move cursor down"));
+            text.push(Line::from("  l, Enter, →    Open selected directory"));
+            text.push(Line::from("  h, Backsp, ←   Go to parent directory"));
+            text.push(Line::from("  PageUp, PageDn Scroll up/down 10 items"));
+            text.push(Line::from("  Home, End      Jump to first/last item"));
+            text.push(Line::from("  n              Sort by name (desc/asc)"));
+            text.push(Line::from("  s              Sort by size (desc/asc)"));
+            text.push(Line::from("  C              Sort by item count (desc/asc)"));
+            text.push(Line::from(
+                "  M              Sort by mtime (desc/asc, req. -e)",
+            ));
+            text.push(Line::from(
+                "  t              Toggle group directories first",
+            ));
+            text.push(Line::from(
+                "  a              Toggle apparent ↔ disk usage size",
+            ));
+            text.push(Line::from(
+                "  g              Cycle graph: both → pct → graph → off",
+            ));
+            text.push(Line::from(
+                "  u              Cycle shared column: off → shared → unique",
+            ));
+            text.push(Line::from(
+                "  c              Toggle item count column visibility",
+            ));
+            text.push(Line::from(
+                "  m              Toggle mtime column visibility (req. -e)",
+            ));
+            text.push(Line::from(
+                "  e              Toggle hidden/excluded files visibility",
+            ));
+            text.push(Line::from("  d              Delete selected item"));
+            text.push(Line::from(
+                "  b              Spawn shell in current directory",
+            ));
+            text.push(Line::from(
+                "  r              Refresh/rescan current directory",
+            ));
+            text.push(Line::from(
+                "  i              Show detailed info about selected item",
+            ));
+            text.push(Line::from("  ?, F1          Open help screen"));
+            text.push(Line::from("  q              Quit (or close dialog)"));
         }
         HelpPage::Format => {
             text.push(Line::from(vec![
