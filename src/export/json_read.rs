@@ -1,5 +1,5 @@
 use crate::tree::{EntryFlags, ExtendedInfo, NodeId, TreeArena, TreeNode};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::Deserialize;
 use serde_json::Value;
 

@@ -6,6 +6,7 @@ pub mod json_write;
 
 use crate::tree::TreeArena;
 use anyhow::Result;
+use std::io::Write;
 use std::path::Path;
 
 pub fn import_file(path: &Path) -> Result<TreeArena> {
@@ -30,7 +31,11 @@ pub fn export_json(
     if compress {
         compress::write_compressed_file(path, &json_bytes, compress_level)
     } else {
-        std::fs::write(path, json_bytes)?;
+        if path == Path::new("-") {
+            std::io::stdout().write_all(&json_bytes)?;
+        } else {
+            std::fs::write(path, json_bytes)?;
+        }
         Ok(())
     }
 }
@@ -42,6 +47,10 @@ pub fn export_bin(
     compress_level: i32,
 ) -> Result<()> {
     let bin_bytes = bin_write::export_bin(arena, block_size_kb, compress_level)?;
-    std::fs::write(path, bin_bytes)?;
+    if path == Path::new("-") {
+        std::io::stdout().write_all(&bin_bytes)?;
+    } else {
+        std::fs::write(path, bin_bytes)?;
+    }
     Ok(())
 }

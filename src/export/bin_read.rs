@@ -1,5 +1,5 @@
 use crate::tree::{EntryFlags, ExtendedInfo, NodeId, TreeArena, TreeNode};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 
 pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {

@@ -1,13 +1,14 @@
 use anyhow::{Context, Result};
-use clap::Parser;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 pub fn load_config(args: &mut crate::cli::Args) -> Result<()> {
-    let mut config_args = vec![std::env::args()
-        .next()
-        .unwrap_or_else(|| "rusdu".to_string())];
+    let mut config_args = vec![
+        std::env::args()
+            .next()
+            .unwrap_or_else(|| "rusdu".to_string()),
+    ];
 
     // 1. Load system config on Unix
     #[cfg(unix)]

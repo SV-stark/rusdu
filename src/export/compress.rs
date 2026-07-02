@@ -4,9 +4,16 @@ use std::io::{Read, Write};
 use std::path::Path;
 
 pub fn read_file_maybe_compressed(path: &Path) -> Result<Vec<u8>> {
-    let mut file = File::open(path).with_context(|| format!("Failed to open file {:?}", path))?;
     let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)?;
+    if path == Path::new("-") {
+        std::io::stdin()
+            .read_to_end(&mut buffer)
+            .context("Failed to read from stdin")?;
+    } else {
+        let mut file =
+            File::open(path).with_context(|| format!("Failed to open file {:?}", path))?;
+        file.read_to_end(&mut buffer)?;
+    }
 
     // Check if the file starts with the Zstandard magic header (0x28B52FFD)
     if buffer.len() >= 4 && &buffer[0..4] == &[0x28, 0xB5, 0x2F, 0xFD] {
@@ -19,10 +26,18 @@ pub fn read_file_maybe_compressed(path: &Path) -> Result<Vec<u8>> {
 }
 
 pub fn write_compressed_file(path: &Path, data: &[u8], level: i32) -> Result<()> {
-    let file = File::create(path).with_context(|| format!("Failed to create file {:?}", path))?;
-    let mut encoder = zstd::stream::Encoder::new(file, level)
-        .context("Failed to initialize Zstandard encoder")?;
-    encoder.write_all(data)?;
-    encoder.finish()?;
+    if path == Path::new("-") {
+        let mut encoder = zstd::stream::Encoder::new(std::io::stdout(), level)
+            .context("Failed to initialize Zstandard encoder for stdout")?;
+        encoder.write_all(data)?;
+        encoder.finish()?;
+    } else {
+        let file =
+            File::create(path).with_context(|| format!("Failed to create file {:?}", path))?;
+        let mut encoder = zstd::stream::Encoder::new(file, level)
+            .context("Failed to initialize Zstandard encoder")?;
+        encoder.write_all(data)?;
+        encoder.finish()?;
+    }
     Ok(())
 }

@@ -100,15 +100,20 @@ rusdu [PATH] [OPTIONS]
 
 | Flag | Long Form | Description |
 | :--- | :--- | :--- |
-| `-f <FILE>` | `--import <FILE>` | Load and browse a previously exported JSON or binary file |
-| `-o <FILE>` | `--export-json <FILE>` | Scan the directory and export results to a JSON file |
-| `-O <FILE>` | `--export-bin <FILE>` | Scan and export results to a binary CBOR file |
+| `-f <FILE>` | `--import <FILE>` | Load and browse a previously exported JSON or binary file (use `-` for stdin) |
+| `-o <FILE>` | `--export-json <FILE>` | Scan the directory and export results to a JSON file (use `-` for stdout) |
+| `-O <FILE>` | `--export-bin <FILE>` | Scan and export results to a binary CBOR file (use `-` for stdout) |
 | `-x` | `--one-file-system` | Stay on the same filesystem partition |
+| | `--cross-file-system` | Cross filesystem boundaries (default, overrides `-x`) |
 | `-t <N>` | `--threads <N>` | Set number of scanning threads (default: 1) |
 | `-e` | `--extended` | Enable extended info mode (mtime, uid, gid, mode) |
 | `-r` | | Read-only mode (`-r` disables deletes; `-rr` also disables shell) |
 | | `--icons` | Enable Nerd Font icons (folder/file glyphs) in TUI list |
 | | `--log-file <FILE>` | Log errors and scanning diagnostics to a file |
+| | `--no-confirm-delete` | Bypass delete confirmation prompts (confirmation is enabled by default) |
+| | `--hide-graph` | Hide the relative size bar column (columns show by default) |
+| | `--hide-percent` | Hide the relative size percent column (columns show by default) |
+| | `--disable-natsort` | Disable natural sorting for filenames (enabled by default) |
 
 ### Interactive Keybindings & Mouse in Browser
 

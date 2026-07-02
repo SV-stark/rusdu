@@ -1,6 +1,6 @@
 use crate::scan::filter::Filter;
 use crate::scan::platform::get_metadata;
-use crate::scan::{update_progress, ProgressMode, ScanOptions, ScanStats};
+use crate::scan::{ProgressMode, ScanOptions, ScanStats, update_progress};
 use crate::tree::{EntryFlags, NodeId, TreeArena, TreeNode};
 use anyhow::Result;
 use std::fs;

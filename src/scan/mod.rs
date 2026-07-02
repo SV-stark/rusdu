@@ -73,7 +73,7 @@ pub fn update_progress(current_path: &Path, stats: &mut ScanStats, mode: Progres
         use std::io::Write;
         let _ = std::io::stderr().flush();
     } else if mode == ProgressMode::Fullscreen {
-        use crossterm::{cursor, terminal, QueueableCommand};
+        use crossterm::{QueueableCommand, cursor, terminal};
         use std::io::Write;
         let mut stderr = std::io::stderr();
         let _ = stderr.queue(cursor::Hide);

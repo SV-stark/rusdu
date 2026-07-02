@@ -1,8 +1,8 @@
 use crate::tree::{EntryFlags, NodeId};
 use crate::ui::theme::get_theme;
 use crate::ui::{
-    get_node_path, get_visible_children, AppState, Dialog, DriveInfo, GraphMode, HelpPage,
-    SharedColumnMode,
+    AppState, Dialog, DriveInfo, GraphMode, HelpPage, SharedColumnMode, get_node_path,
+    get_visible_children,
 };
 use ratatui::prelude::*;
 use ratatui::widgets::*;
@@ -165,12 +165,17 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         if state.show_mtime {
             let mtime_val = child.extended.as_ref().map(|e| e.mtime).unwrap_or(0);
             if mtime_val > 0 {
-                let dt = chrono::DateTime::from_timestamp(mtime_val, 0);
-                mtime_str = format!(
-                    " {}",
-                    dt.map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
-                        .unwrap_or_else(|| "Unknown".to_string())
-                );
+                let formatted =
+                    if let Ok(odt) = time::OffsetDateTime::from_unix_timestamp(mtime_val) {
+                        let format = time::macros::format_description!(
+                            "[year]-[month]-[day] [hour]:[minute]:[second]"
+                        );
+                        odt.format(&format)
+                            .unwrap_or_else(|_| "Unknown".to_string())
+                    } else {
+                        "Unknown".to_string()
+                    };
+                mtime_str = format!(" {}", formatted);
             } else {
                 mtime_str = " ".repeat(20);
             }
@@ -471,12 +476,14 @@ fn draw_info_dialog(
                 "Last modified: ",
                 Style::default().add_modifier(Modifier::BOLD),
             ),
-            Span::raw(format!(
-                "{}",
-                chrono::DateTime::from_timestamp(ext.mtime, 0)
-                    .map(|d| d.to_rfc3339())
-                    .unwrap_or_else(|| "Unknown".to_string())
-            )),
+            Span::raw(
+                if let Ok(odt) = time::OffsetDateTime::from_unix_timestamp(ext.mtime) {
+                    odt.format(&time::format_description::well_known::Rfc3339)
+                        .unwrap_or_else(|_| "Unknown".to_string())
+                } else {
+                    "Unknown".to_string()
+                },
+            ),
         ]));
         text.push(Line::from(vec![
             Span::styled(
@@ -652,9 +659,15 @@ fn draw_sidebar_preview(
         text.push(Line::from(vec![
             Span::styled("MTime: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(
-                chrono::DateTime::from_timestamp(ext.mtime, 0)
-                    .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
-                    .unwrap_or_else(|| "Unknown".to_string()),
+                if let Ok(odt) = time::OffsetDateTime::from_unix_timestamp(ext.mtime) {
+                    let format = time::macros::format_description!(
+                        "[year]-[month]-[day] [hour]:[minute]:[second]"
+                    );
+                    odt.format(&format)
+                        .unwrap_or_else(|_| "Unknown".to_string())
+                } else {
+                    "Unknown".to_string()
+                },
             ),
         ]));
     }

@@ -8,8 +8,8 @@ use anyhow::Result;
 use crossterm::event::{
     self, Event, KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DriveInfo {
@@ -80,6 +80,45 @@ impl AppState {
                 self.watcher = Some(w);
                 self.watcher_rx = Some(rx);
             }
+        }
+    }
+
+    pub fn allow_delete(&self) -> bool {
+        let is_import = self.args.import_file.is_some();
+        if self.args.disable_delete {
+            false
+        } else if self.args.enable_delete {
+            true
+        } else if is_import {
+            false
+        } else {
+            self.args.read_only < 1
+        }
+    }
+
+    pub fn allow_shell(&self) -> bool {
+        let is_import = self.args.import_file.is_some();
+        if self.args.disable_shell {
+            false
+        } else if self.args.enable_shell {
+            true
+        } else if is_import {
+            false
+        } else {
+            self.args.read_only < 2
+        }
+    }
+
+    pub fn allow_refresh(&self) -> bool {
+        let is_import = self.args.import_file.is_some();
+        if self.args.disable_refresh {
+            false
+        } else if self.args.enable_refresh {
+            true
+        } else if is_import {
+            false
+        } else {
+            self.args.read_only < 1
         }
     }
 }
@@ -154,13 +193,13 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
         si: args.si,
         show_itemcount: args.show_itemcount,
         show_mtime: args.show_mtime,
-        show_hidden: args.show_hidden,
+        show_hidden: !args.hide_hidden,
         group_dirs_first: args.group_directories_first,
-        graph_mode: match (args.show_graph, args.show_percent) {
-            (true, true) => GraphMode::Both,
-            (false, true) => GraphMode::Percent,
-            (true, false) => GraphMode::Graph,
-            (false, false) => GraphMode::None,
+        graph_mode: match (args.hide_graph, args.hide_percent) {
+            (true, true) => GraphMode::None,
+            (false, true) => GraphMode::Graph,
+            (true, false) => GraphMode::Percent,
+            (false, false) => GraphMode::Both,
         },
         shared_column_mode: match args.shared_column.as_str() {
             "off" => SharedColumnMode::Off,
@@ -348,9 +387,8 @@ fn handle_dialog_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
             let node_id = *node_id;
             match code {
                 KeyCode::Char('y') | KeyCode::Enter => {
-                    // Perform deletion
                     let item_path = get_node_path(&state.arena, node_id);
-                    let read_only = state.args.read_only >= 1;
+                    let read_only = !state.allow_delete();
                     if let Err(e) = crate::delete::delete_item(
                         &item_path,
                         state.args.delete_command.as_deref(),
@@ -780,17 +818,16 @@ fn handle_browser_keys(key: event::KeyEvent, state: &mut AppState) -> Result<boo
             }
         }
         KeyCode::Char('d') => {
-            if !visible_children.is_empty() {
+            if state.allow_delete() && !visible_children.is_empty() {
                 let selected_id = visible_children[state.selected_idx];
-                if state.args.confirm_delete {
+                if !state.args.no_confirm_delete {
                     state.active_dialog = Dialog::ConfirmDelete(selected_id);
                 } else {
                     let item_path = get_node_path(&state.arena, selected_id);
-                    let read_only = state.args.read_only >= 1;
                     let _ = crate::delete::delete_item(
                         &item_path,
                         state.args.delete_command.as_deref(),
-                        read_only,
+                        false,
                     );
                     state.arena.delete_node(selected_id);
                     crate::tree::stats::recalculate_stats(&mut state.arena);
@@ -799,12 +836,13 @@ fn handle_browser_keys(key: event::KeyEvent, state: &mut AppState) -> Result<boo
             }
         }
         KeyCode::Char('b') => {
-            let current_path = get_node_path(&state.arena, state.current_dir);
-            let read_only = state.args.read_only >= 2;
-            let _ = crate::shell::spawn_shell(&current_path, read_only);
+            if state.allow_shell() {
+                let current_path = get_node_path(&state.arena, state.current_dir);
+                let _ = crate::shell::spawn_shell(&current_path, false);
+            }
         }
         KeyCode::Char('r') => {
-            if state.args.read_only < 1 && state.refreshing_rx.is_none() {
+            if state.allow_refresh() && state.refreshing_rx.is_none() {
                 let current_path = get_node_path(&state.arena, state.current_dir);
                 let opts = crate::scan::ScanOptions {
                     one_file_system: state.args.one_file_system,
@@ -897,7 +935,7 @@ pub fn get_visible_children(state: &AppState, dir_id: NodeId) -> Vec<NodeId> {
 
         let ord = match sort_col {
             "name" => {
-                if state.args.enable_natsort {
+                if !state.args.disable_natsort {
                     crate::natsort::natural_compare(&a.name, &b.name)
                 } else {
                     a.name.cmp(&b.name)
@@ -938,11 +976,7 @@ pub fn get_visible_children(state: &AppState, dir_id: NodeId) -> Vec<NodeId> {
             }
         };
 
-        if is_desc {
-            ord.reverse()
-        } else {
-            ord
-        }
+        if is_desc { ord.reverse() } else { ord }
     });
 
     children

@@ -1,11 +1,11 @@
 use anyhow::Result;
-use glob::Pattern;
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
 pub struct Filter {
-    exclude_patterns: Vec<Pattern>,
+    exclude_patterns: GlobSet,
     exclude_caches: bool,
     exclude_kernfs: bool,
 }
@@ -17,12 +17,12 @@ impl Filter {
         exclude_caches: bool,
         exclude_kernfs: bool,
     ) -> Result<Self> {
-        let mut exclude_patterns = Vec::new();
+        let mut builder = GlobSetBuilder::new();
 
         // Compile CLI patterns
         for pat_str in exclude_strs {
-            if let Ok(pat) = Pattern::new(pat_str) {
-                exclude_patterns.push(pat);
+            if let Ok(glob) = Glob::new(pat_str) {
+                builder.add(glob);
             }
         }
 
@@ -35,13 +35,15 @@ impl Filter {
                     let line = line?;
                     let trimmed = line.trim();
                     if !trimmed.is_empty() && !trimmed.starts_with('#') {
-                        if let Ok(pat) = Pattern::new(trimmed) {
-                            exclude_patterns.push(pat);
+                        if let Ok(glob) = Glob::new(trimmed) {
+                            builder.add(glob);
                         }
                     }
                 }
             }
         }
+
+        let exclude_patterns = builder.build().unwrap_or_else(|_| GlobSet::empty());
 
         Ok(Self {
             exclude_patterns,
@@ -58,11 +60,8 @@ impl Filter {
         // 1. Check glob patterns on the filename or relative path
         if !self.exclude_patterns.is_empty() {
             if let Some(file_name) = path.file_name() {
-                let file_name_str = file_name.to_string_lossy();
-                for pattern in &self.exclude_patterns {
-                    if pattern.matches(&file_name_str) {
-                        return true;
-                    }
+                if self.exclude_patterns.is_match(file_name) {
+                    return true;
                 }
             }
         }

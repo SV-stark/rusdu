@@ -13,12 +13,16 @@ mod ui;
 mod util;
 
 use anyhow::Result;
-use clap::Parser;
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
-    // Parse CLI arguments
-    let mut args = cli::Args::parse();
+    let mut args = match cli::Args::parse() {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     // Load configuration files unless ignored
     if !args.ignore_config {
@@ -50,7 +54,11 @@ fn main() -> Result<()> {
 
     // If an import file was specified
     let arena = if let Some(ref import_path) = args.import_file {
-        println!("Importing from {}...", import_path.display());
+        if import_path == std::path::Path::new("-") {
+            eprintln!("Importing from stdin...");
+        } else {
+            eprintln!("Importing from {}...", import_path.display());
+        }
         let tree = export::import_file(import_path)?;
         tree
     } else {
@@ -59,6 +67,22 @@ fn main() -> Result<()> {
             scan::ProgressMode::Silent
         } else if args.line_progress {
             scan::ProgressMode::Line
+        } else if args.fullscreen_progress {
+            scan::ProgressMode::Fullscreen
+        } else if args.export_json.is_some() || args.export_bin.is_some() {
+            let is_stdout = args
+                .export_json
+                .as_ref()
+                .map_or(false, |p| p == std::path::Path::new("-"))
+                || args
+                    .export_bin
+                    .as_ref()
+                    .map_or(false, |p| p == std::path::Path::new("-"));
+            if is_stdout {
+                scan::ProgressMode::Silent
+            } else {
+                scan::ProgressMode::Line
+            }
         } else {
             scan::ProgressMode::Fullscreen
         };
