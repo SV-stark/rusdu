@@ -1,6 +1,6 @@
 [package]
 name = "rusdu"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Rust rewrite of ncdu — NCurses Disk Usage analyzer"
 license = "MIT"
@@ -11,8 +11,8 @@ exclude = ["rusdu_rewrite_plan.md", ".github/**"]
 
 [dependencies]
 lexopt = "0.3"
-ratatui = { version = "0.26", features = ["crossterm"] }
-crossterm = { version = "0.27", features = ["events"] }
+ratatui = { version = "0.30", features = ["crossterm"] }
+crossterm = { version = "0.29", features = ["events"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 zstd = "0.13"
@@ -20,23 +20,23 @@ rayon = "1.8"
 jwalk = "0.8"
 bitflags = "2.4"
 globset = "0.4"
-dirs = "5.0"
+dirs = "6.0"
 natord = "1.0.9"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 anyhow = "1.0"
-thiserror = "1.0"
-unicode-width = "0.1"
+thiserror = "2.0"
+unicode-width = "0.2"
 log = "0.4"
-env_logger = "0.10"
+env_logger = "0.11"
 ciborium = "0.2"
-notify = "7.0.0"
-sysinfo = "0.34.2"
+notify = "8.0"
+sysinfo = "0.39"
 
 
 [target.'cfg(unix)'.dependencies]
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.52", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_SystemServices"] }
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_SystemServices"] }
 
 [profile.release]
 lto = true

@@ -17,7 +17,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
             Constraint::Min(3),    // Browser body
             Constraint::Length(1), // Footer
         ])
-        .split(f.size());
+        .split(f.area());
 
     // 1. Draw Header
     let current_path = get_node_path(&state.arena, state.current_dir);
@@ -309,7 +309,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
 }
 
 fn draw_help_dialog(f: &mut Frame, page: HelpPage, theme: &crate::ui::theme::Theme) {
-    let size = f.size();
+    let size = f.area();
     let area = centered_rect(75, 90, size);
 
     let mut text = Vec::new();
@@ -422,7 +422,7 @@ fn draw_info_dialog(
     node_id: NodeId,
     theme: &crate::ui::theme::Theme,
 ) {
-    let size = f.size();
+    let size = f.area();
     let area = centered_rect(70, 50, size);
 
     let node = state.arena.get(node_id);
@@ -518,7 +518,7 @@ fn draw_confirm_delete(
     node_id: NodeId,
     theme: &crate::ui::theme::Theme,
 ) {
-    let size = f.size();
+    let size = f.area();
     let area = centered_rect(50, 20, size);
 
     let node = state.arena.get(node_id);
@@ -542,7 +542,7 @@ fn draw_confirm_delete(
 }
 
 fn draw_confirm_quit(f: &mut Frame, theme: &crate::ui::theme::Theme) {
-    let size = f.size();
+    let size = f.area();
     let area = centered_rect(40, 20, size);
 
     let mut text = Vec::new();
@@ -581,7 +581,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 }
 
 fn draw_refreshing_dialog(f: &mut Frame, theme: &crate::ui::theme::Theme) {
-    let size = f.size();
+    let size = f.area();
     let area = centered_rect(40, 15, size);
 
     let mut text = Vec::new();
@@ -730,7 +730,7 @@ fn draw_fuzzy_search(
     selected_idx: usize,
     theme: &crate::ui::theme::Theme,
 ) {
-    let size = f.size();
+    let size = f.area();
     let area = centered_rect(80, 80, size);
 
     let popup_layout = Layout::default()
@@ -773,7 +773,7 @@ fn draw_fuzzy_search(
 }
 
 fn draw_live_filter(f: &mut Frame, query: &str, theme: &crate::ui::theme::Theme) {
-    let size = f.size();
+    let size = f.area();
     let area = centered_rect(50, 20, size);
 
     let text = vec![
@@ -806,7 +806,7 @@ fn draw_drive_selector(
     selected_idx: usize,
     theme: &crate::ui::theme::Theme,
 ) {
-    let size = f.size();
+    let size = f.area();
     let area = centered_rect(65, 55, size);
 
     let mut list_items = Vec::new();
@@ -845,7 +845,7 @@ fn draw_extension_analytics(
     scroll_offset: usize,
     theme: &crate::ui::theme::Theme,
 ) {
-    let size = f.size();
+    let size = f.area();
     let area = centered_rect(70, 60, size);
 
     let mut list_items = Vec::new();

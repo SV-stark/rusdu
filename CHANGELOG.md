@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-07-02
+
+### Changed
+- **Upgraded all libraries to their latest versions**: Upgraded `ratatui` (to `0.30`), `crossterm` (to `0.29`), `dirs` (to `6.0`), `unicode-width` (to `0.2`), `env_logger` (to `0.11`), `notify` (to `8.0`), `sysinfo` (to `0.39`), and `windows-sys` (to `0.59`).
+- **Refactored Deprecated UI Methods**: Replaced deprecated `Frame::size()` calls with `Frame::area()` to resolve all compiler warnings in `ratatui`.
+
 ## [0.2.0] - 2026-07-02
 
 ### Added
