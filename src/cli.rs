@@ -1,6 +1,21 @@
 use lexopt::{Arg, ValueExt};
 use std::path::PathBuf;
 
+#[derive(thiserror::Error, Debug)]
+pub enum CliError {
+    #[error("CLI argument parsing error: {0}")]
+    Lexopt(#[from] lexopt::Error),
+
+    #[error("Failed to parse integer: {0}")]
+    ParseInt(#[from] std::num::ParseIntError),
+
+    #[error("Unexpected argument: {0:?}")]
+    UnexpectedArgument(std::ffi::OsString),
+
+    #[error("Unknown option: {0:?}")]
+    UnknownOption(String),
+}
+
 #[derive(Debug, Clone)]
 pub struct Args {
     pub path: Option<PathBuf>,
@@ -133,12 +148,12 @@ impl Default for Args {
 }
 
 impl Args {
-    pub fn parse() -> Result<Self, String> {
+    pub fn parse() -> Result<Self, CliError> {
         let args = std::env::args_os();
         Self::try_parse_from(args)
     }
 
-    pub fn try_parse_from<I, S>(iter: I) -> Result<Self, String>
+    pub fn try_parse_from<I, S>(iter: I) -> Result<Self, CliError>
     where
         I: IntoIterator<Item = S>,
         S: Into<std::ffi::OsString>,
@@ -146,7 +161,7 @@ impl Args {
         let mut parser = lexopt::Parser::from_iter(iter);
         let mut args = Args::default();
 
-        while let Some(arg) = parser.next().map_err(|e| e.to_string())? {
+        while let Some(arg) = parser.next()? {
             match arg {
                 Arg::Short('h') | Arg::Long("help") => {
                     print_help();
@@ -157,13 +172,13 @@ impl Args {
                     std::process::exit(0);
                 }
                 Arg::Short('f') | Arg::Long("import") => {
-                    args.import_file = Some(parser.value().map_err(|e| e.to_string())?.into());
+                    args.import_file = Some(parser.value()?.into());
                 }
                 Arg::Short('o') | Arg::Long("export-json") => {
-                    args.export_json = Some(parser.value().map_err(|e| e.to_string())?.into());
+                    args.export_json = Some(parser.value()?.into());
                 }
                 Arg::Short('O') | Arg::Long("export-bin") => {
-                    args.export_bin = Some(parser.value().map_err(|e| e.to_string())?.into());
+                    args.export_bin = Some(parser.value()?.into());
                 }
                 Arg::Short('e') | Arg::Long("extended") => {
                     args.extended = true;
@@ -180,16 +195,10 @@ impl Args {
                     args.one_file_system = false;
                 }
                 Arg::Long("exclude") => {
-                    args.exclude.push(
-                        parser
-                            .value()
-                            .map_err(|e| e.to_string())?
-                            .string()
-                            .map_err(|e| e.to_string())?,
-                    );
+                    args.exclude.push(parser.value()?.string()?);
                 }
                 Arg::Short('X') | Arg::Long("exclude-from") => {
-                    args.exclude_from = Some(parser.value().map_err(|e| e.to_string())?.into());
+                    args.exclude_from = Some(parser.value()?.into());
                 }
                 Arg::Long("exclude-caches") => {
                     args.exclude_caches = true;
@@ -216,11 +225,7 @@ impl Args {
                     args.follow_symlinks = false;
                 }
                 Arg::Short('t') | Arg::Long("threads") => {
-                    let val: usize = parser
-                        .value()
-                        .map_err(|e| e.to_string())?
-                        .parse()
-                        .map_err(|e| e.to_string())?;
+                    let val: usize = parser.value()?.parse()?;
                     args.threads = Some(val);
                 }
                 Arg::Short('c') | Arg::Long("compress") => {
@@ -232,19 +237,11 @@ impl Args {
                     args.compress = false;
                 }
                 Arg::Long("compress-level") => {
-                    let val: i32 = parser
-                        .value()
-                        .map_err(|e| e.to_string())?
-                        .parse()
-                        .map_err(|e| e.to_string())?;
+                    let val: i32 = parser.value()?.parse()?;
                     args.compress_level = Some(val);
                 }
                 Arg::Long("export-block-size") => {
-                    let val: usize = parser
-                        .value()
-                        .map_err(|e| e.to_string())?
-                        .parse()
-                        .map_err(|e| e.to_string())?;
+                    let val: usize = parser.value()?.parse()?;
                     args.export_block_size = Some(val);
                 }
                 Arg::Short('0') | Arg::Long("silent") => {
@@ -344,25 +341,13 @@ impl Args {
                     args.show_percent = false;
                 }
                 Arg::Long("graph-style") => {
-                    args.graph_style = parser
-                        .value()
-                        .map_err(|e| e.to_string())?
-                        .string()
-                        .map_err(|e| e.to_string())?;
+                    args.graph_style = parser.value()?.string()?;
                 }
                 Arg::Long("shared-column") => {
-                    args.shared_column = parser
-                        .value()
-                        .map_err(|e| e.to_string())?
-                        .string()
-                        .map_err(|e| e.to_string())?;
+                    args.shared_column = parser.value()?.string()?;
                 }
                 Arg::Long("sort") => {
-                    args.sort = parser
-                        .value()
-                        .map_err(|e| e.to_string())?
-                        .string()
-                        .map_err(|e| e.to_string())?;
+                    args.sort = parser.value()?.string()?;
                 }
                 Arg::Long("enable-natsort") => {
                     args.enable_natsort = true;
@@ -397,36 +382,26 @@ impl Args {
                     args.confirm_delete = false;
                 }
                 Arg::Long("delete-command") => {
-                    args.delete_command = Some(
-                        parser
-                            .value()
-                            .map_err(|e| e.to_string())?
-                            .string()
-                            .map_err(|e| e.to_string())?,
-                    );
+                    args.delete_command = Some(parser.value()?.string()?);
                 }
                 Arg::Long("color") => {
-                    args.color = parser
-                        .value()
-                        .map_err(|e| e.to_string())?
-                        .string()
-                        .map_err(|e| e.to_string())?;
+                    args.color = parser.value()?.string()?;
                 }
                 Arg::Long("icons") => {
                     args.icons = true;
                 }
                 Arg::Long("log-file") => {
-                    args.log_file = Some(parser.value().map_err(|e| e.to_string())?.into());
+                    args.log_file = Some(parser.value()?.into());
                 }
                 Arg::Value(val) => {
                     if args.path.is_none() {
                         args.path = Some(val.into());
                     } else {
-                        return Err(format!("Unexpected argument: {:?}", val));
+                        return Err(CliError::UnexpectedArgument(val.into()));
                     }
                 }
                 _ => {
-                    return Err(format!("Unknown option: {:?}", arg));
+                    return Err(CliError::UnknownOption(format!("{:?}", arg)));
                 }
             }
         }

@@ -76,21 +76,14 @@ pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
     let mut parent_child_links = Vec::new();
     let mut prev_sibling_links = Vec::new();
 
-    let mut cursor = 0;
-    while cursor < root_block_data.len() {
-        let item_offset = cursor;
-        let reader = &root_block_data[cursor..];
+    let mut cursor = std::io::Cursor::new(root_block_data);
+    while (cursor.position() as usize) < root_block_data.len() {
+        let item_offset = cursor.position() as usize;
 
-        let value: ciborium::value::Value = match ciborium::de::from_reader(reader) {
+        let value: ciborium::value::Value = match ciborium::de::from_reader(&mut cursor) {
             Ok(val) => val,
             Err(_) => break, // Reached end of stream
         };
-
-        // Determine how many bytes ciborium consumed to advance cursor
-        let mut temp_buf = Vec::new();
-        ciborium::ser::into_writer(&value, &mut temp_buf)?;
-        let consumed = temp_buf.len();
-        cursor += consumed;
 
         let map = match value {
             ciborium::value::Value::Map(m) => m,
@@ -201,6 +194,9 @@ pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
         };
         if rderr {
             flags.insert(EntryFlags::READ_ERROR);
+        }
+        if nlink > 1 && item_type != 1 {
+            flags.insert(EntryFlags::HARD_LINK);
         }
 
         let has_extended = uid.is_some() || gid.is_some() || mode.is_some() || mtime.is_some();
