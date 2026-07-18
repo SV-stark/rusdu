@@ -75,6 +75,11 @@ pub fn update_progress(current_path: &Path, stats: &mut ScanStats, mode: Progres
         return;
     }
 
+    // Only query the timer every 128 items to minimize system call overhead
+    if stats.items_scanned & 127 != 0 {
+        return;
+    }
+
     let now = std::time::Instant::now();
     if let Some(last) = stats.last_update {
         if now.duration_since(last).as_millis() < 100 {

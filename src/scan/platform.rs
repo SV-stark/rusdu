@@ -49,7 +49,8 @@ pub fn get_metadata(path: &std::path::Path, meta: &Metadata, extended: bool) -> 
     use std::os::windows::io::AsRawHandle;
     use std::time::UNIX_EPOCH;
     use windows_sys::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS, GetFileInformationByHandle,
+        BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES,
+        GetFileInformationByHandle,
     };
 
     let asize = meta.len() as i64;
@@ -61,12 +62,11 @@ pub fn get_metadata(path: &std::path::Path, meta: &Metadata, extended: bool) -> 
     let mut ino = 0u64;
     let mut nlink = 1u32;
 
-    // Open handle to query info stably via Windows handle
-    if let Ok(file) = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-        .open(path)
-    {
+    // Open handle to query info stably via Windows handle requesting only FILE_READ_ATTRIBUTES
+    let mut opts = std::fs::OpenOptions::new();
+    opts.access_mode(FILE_READ_ATTRIBUTES);
+    opts.custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+    if let Ok(file) = opts.open(path) {
         let handle = file.as_raw_handle() as _;
         unsafe {
             let mut info = std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>();
