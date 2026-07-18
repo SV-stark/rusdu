@@ -3,8 +3,18 @@ pub mod parallel;
 pub mod platform;
 pub mod walker;
 
+use crate::cli::Args;
 use crate::tree::TreeArena;
 use std::path::Path;
+
+/// Default zstandard compression level (matches ncdu 2.x default).
+pub const DEFAULT_COMPRESS_LEVEL: i32 = 4;
+
+/// Default number of scan threads (single-threaded mode).
+pub const DEFAULT_THREADS: usize = 1;
+
+/// Default binary export block size in KiB.
+pub const DEFAULT_BLOCK_SIZE_KB: usize = 64;
 
 #[derive(Debug, Clone)]
 pub struct ScanOptions {
@@ -16,6 +26,22 @@ pub struct ScanOptions {
     pub follow_symlinks: bool,
     pub threads: usize,
     pub extended: bool,
+}
+
+impl ScanOptions {
+    /// Build a `ScanOptions` from parsed CLI arguments.
+    pub fn from_args(args: &Args) -> Self {
+        Self {
+            one_file_system: args.one_file_system,
+            exclude_patterns: args.exclude.clone(),
+            exclude_from: args.exclude_from.clone(),
+            exclude_caches: args.exclude_caches,
+            exclude_kernfs: args.exclude_kernfs,
+            follow_symlinks: args.follow_symlinks,
+            threads: args.threads.unwrap_or(DEFAULT_THREADS),
+            extended: args.extended,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

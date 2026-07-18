@@ -12,7 +12,7 @@ pub struct PlatformMetadata {
 }
 
 #[cfg(unix)]
-pub fn get_metadata(meta: &Metadata, extended: bool) -> PlatformMetadata {
+pub fn get_metadata(_path: &std::path::Path, meta: &Metadata, extended: bool) -> PlatformMetadata {
     use std::os::unix::fs::MetadataExt;
 
     let asize = meta.len() as i64;
@@ -44,17 +44,39 @@ pub fn get_metadata(meta: &Metadata, extended: bool) -> PlatformMetadata {
 }
 
 #[cfg(windows)]
-pub fn get_metadata(meta: &Metadata, extended: bool) -> PlatformMetadata {
+pub fn get_metadata(path: &std::path::Path, meta: &Metadata, extended: bool) -> PlatformMetadata {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
     use std::time::UNIX_EPOCH;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS, GetFileInformationByHandle,
+    };
 
     let asize = meta.len() as i64;
     // On Windows, fallback to apparent size or align to 4096 bytes block size
     let dsize = ((asize + 4095) / 4096) * 4096;
 
-    // Volume serial number and file index are not stably available from Metadata on Windows
-    let dev = 0u64;
-    let ino = 0u64;
-    let nlink = 1u32;
+    // Stable Windows implementation of volume serial number, file index, and link count
+    let mut dev = 0u64;
+    let mut ino = 0u64;
+    let mut nlink = 1u32;
+
+    // Open handle to query info stably via Windows handle
+    if let Ok(file) = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+    {
+        let handle = file.as_raw_handle() as _;
+        unsafe {
+            let mut info = std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>();
+            if GetFileInformationByHandle(handle, &mut info) != 0 {
+                dev = info.dwVolumeSerialNumber as u64;
+                ino = ((info.nFileIndexHigh as u64) << 32) | (info.nFileIndexLow as u64);
+                nlink = info.nNumberOfLinks;
+            }
+        }
+    }
 
     let extended_info = if extended {
         let mtime = meta

@@ -64,6 +64,9 @@ impl Filter {
                     return true;
                 }
             }
+            if self.exclude_patterns.is_match(path) {
+                return true;
+            }
         }
 
         // 2. Check kernfs paths if on Linux and exclude_kernfs is enabled

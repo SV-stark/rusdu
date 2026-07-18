@@ -2,7 +2,6 @@ use crate::tree::{EntryFlags, NodeId};
 use crate::ui::theme::get_theme;
 use crate::ui::{
     AppState, Dialog, DriveInfo, GraphMode, HelpPage, SharedColumnMode, get_node_path,
-    get_visible_children,
 };
 use ratatui::prelude::*;
 use ratatui::widgets::*;
@@ -101,8 +100,11 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
 
     let end_idx = (state.scroll_offset + height).min(visible_children.len());
 
-    for idx in state.scroll_offset..end_idx {
-        let child_id = visible_children[idx];
+    for (i, &child_id) in visible_children[state.scroll_offset..end_idx]
+        .iter()
+        .enumerate()
+    {
+        let idx = state.scroll_offset + i;
         let child = state.arena.get(child_id);
 
         // Build prefix flag
@@ -367,7 +369,7 @@ fn draw_help_dialog(f: &mut Frame, page: HelpPage, theme: &crate::ui::theme::The
             text.push(Line::from(
                 "  Tab, p         Toggle sidebar file preview panel",
             ));
-            text.push(Line::from("  v              Open disk/drive selector"));
+            text.push(Line::from("  V              Open disk/drive selector"));
             text.push(Line::from("  E              Show file extension analytics"));
             text.push(Line::from(
                 "  c, o, v        Custom actions (Copy path, Open folder, Open editor)",
@@ -522,13 +524,14 @@ fn draw_confirm_delete(
     let area = centered_rect(50, 20, size);
 
     let node = state.arena.get(node_id);
-    let mut text = Vec::new();
-    text.push(Line::from("Are you sure you want to delete:"));
-    text.push(Line::from(vec![Span::styled(
-        &*node.name,
-        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-    )]));
-    text.push(Line::from("\n(Press 'y' to confirm, 'n' to cancel)"));
+    let text = vec![
+        Line::from("Are you sure you want to delete:"),
+        Line::from(vec![Span::styled(
+            &*node.name,
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )]),
+        Line::from("\n(Press 'y' to confirm, 'n' to cancel)"),
+    ];
 
     let block = Block::default()
         .title(" Confirm Delete ")
@@ -545,9 +548,10 @@ fn draw_confirm_quit(f: &mut Frame, theme: &crate::ui::theme::Theme) {
     let size = f.area();
     let area = centered_rect(40, 20, size);
 
-    let mut text = Vec::new();
-    text.push(Line::from("Really quit rusdu?"));
-    text.push(Line::from("\n(Press 'y' to confirm, 'n' to cancel)"));
+    let text = vec![
+        Line::from("Really quit rusdu?"),
+        Line::from("\n(Press 'y' to confirm, 'n' to cancel)"),
+    ];
 
     let block = Block::default()
         .title(" Confirm Quit ")
@@ -584,10 +588,11 @@ fn draw_refreshing_dialog(f: &mut Frame, theme: &crate::ui::theme::Theme) {
     let size = f.area();
     let area = centered_rect(40, 15, size);
 
-    let mut text = Vec::new();
-    text.push(Line::from(""));
-    text.push(Line::from("  Refreshing directory..."));
-    text.push(Line::from("  Please wait."));
+    let text = vec![
+        Line::from(""),
+        Line::from("  Refreshing directory..."),
+        Line::from("  Please wait."),
+    ];
 
     let block = Block::default()
         .title(" Refreshing ")
@@ -706,8 +711,9 @@ fn read_file_preview(path: &std::path::Path) -> String {
         let mut lines = Vec::new();
         for line in reader.lines().take(15) {
             if let Ok(l) = line {
-                if l.len() > 40 {
-                    lines.push(format!("{}...", &l[..40]));
+                if l.chars().count() > 40 {
+                    let truncated: String = l.chars().take(40).collect();
+                    lines.push(format!("{}...", truncated));
                 } else {
                     lines.push(l);
                 }
@@ -851,11 +857,12 @@ fn draw_extension_analytics(
     let mut list_items = Vec::new();
     let total_ext_size: u64 = stats.iter().map(|s| s.1).sum();
 
-    let height = 10;
+    let height = (area.height as usize).saturating_sub(4); // subtract borders (2) + title (1) + padding (1)
+    let height = height.max(1);
     let end_idx = (scroll_offset + height).min(stats.len());
 
-    for idx in scroll_offset..end_idx {
-        let (ext, size_val) = &stats[idx];
+    for (i, (ext, size_val)) in stats[scroll_offset..end_idx].iter().enumerate() {
+        let idx = scroll_offset + i;
         let pct = if total_ext_size > 0 {
             (*size_val as f64 / total_ext_size as f64) * 100.0
         } else {

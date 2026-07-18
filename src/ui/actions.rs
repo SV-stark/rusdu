@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::collections::HashMap;
+use std::io::BufRead;
 use std::path::Path;
 use std::process::Command;
 
@@ -17,20 +18,17 @@ pub fn load_custom_actions() -> HashMap<char, String> {
         if config_path.exists() {
             if let Ok(file) = std::fs::File::open(&config_path) {
                 let reader = std::io::BufReader::new(file);
-                use std::io::BufRead;
-                for line in reader.lines() {
-                    if let Ok(l) = line {
-                        let trimmed = l.trim();
-                        if trimmed.is_empty() || trimmed.starts_with('#') {
-                            continue;
-                        }
-                        if let Some(pos) = trimmed.find('=') {
-                            let key_part = trimmed[..pos].trim();
-                            let cmd_part = trimmed[pos + 1..].trim();
-                            if key_part.len() == 1 {
-                                if let Some(key_char) = key_part.chars().next() {
-                                    actions.insert(key_char, cmd_part.to_string());
-                                }
+                for l in reader.lines().map_while(Result::ok) {
+                    let trimmed = l.trim();
+                    if trimmed.is_empty() || trimmed.starts_with('#') {
+                        continue;
+                    }
+                    if let Some(pos) = trimmed.find('=') {
+                        let key_part = trimmed[..pos].trim();
+                        let cmd_part = trimmed[pos + 1..].trim();
+                        if key_part.len() == 1 {
+                            if let Some(key_char) = key_part.chars().next() {
+                                actions.insert(key_char, cmd_part.to_string());
                             }
                         }
                     }
@@ -50,7 +48,7 @@ pub fn execute_custom_action(cmd: &str, path: &Path) -> Result<()> {
             {
                 let cmd_str = format!("Set-Clipboard -Value '{}'", path_str.replace("'", "''"));
                 Command::new("powershell")
-                    .args(&["-Command", &cmd_str])
+                    .args(["-Command", &cmd_str])
                     .output()?;
             }
             #[cfg(target_os = "macos")]
@@ -73,7 +71,7 @@ pub fn execute_custom_action(cmd: &str, path: &Path) -> Result<()> {
                     .unwrap_or(false);
                 if has_xclip {
                     let mut child = Command::new("xclip")
-                        .args(&["-selection", "clipboard"])
+                        .args(["-selection", "clipboard"])
                         .stdin(std::process::Stdio::piped())
                         .spawn()?;
                     if let Some(mut stdin) = child.stdin.take() {
@@ -83,7 +81,7 @@ pub fn execute_custom_action(cmd: &str, path: &Path) -> Result<()> {
                     child.wait()?;
                 } else {
                     let mut child = Command::new("xsel")
-                        .args(&["--clipboard", "--input"])
+                        .args(["--clipboard", "--input"])
                         .stdin(std::process::Stdio::piped())
                         .spawn()?;
                     if let Some(mut stdin) = child.stdin.take() {
@@ -107,7 +105,7 @@ pub fn execute_custom_action(cmd: &str, path: &Path) -> Result<()> {
             }
             #[cfg(target_os = "macos")]
             {
-                Command::new("open").args(&["-R", &path_str]).spawn()?;
+                Command::new("open").args(["-R", &path_str]).spawn()?;
             }
             #[cfg(all(unix, not(target_os = "macos")))]
             {
@@ -180,13 +178,13 @@ pub fn execute_custom_action(cmd: &str, path: &Path) -> Result<()> {
             #[cfg(target_os = "windows")]
             {
                 let mut child = Command::new("powershell")
-                    .args(&["-Command", &shell_cmd])
+                    .args(["-Command", &shell_cmd])
                     .spawn()?;
                 child.wait()?;
             }
             #[cfg(not(target_os = "windows"))]
             {
-                let mut child = Command::new("sh").args(&["-c", &shell_cmd]).spawn()?;
+                let mut child = Command::new("sh").args(["-c", &shell_cmd]).spawn()?;
                 child.wait()?;
             }
 

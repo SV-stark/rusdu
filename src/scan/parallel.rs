@@ -27,7 +27,7 @@ pub fn scan_parallel(
     }
 
     let root_meta = std::fs::symlink_metadata(root_path)?;
-    let root_plat = get_metadata(&root_meta, opts.extended);
+    let root_plat = get_metadata(root_path, &root_meta, opts.extended);
 
     let root_node = TreeNode::new_dir(
         root_path.to_string_lossy().into_owned(),
@@ -74,12 +74,6 @@ pub fn scan_parallel(
             None => continue, // Parent was not added/processed or was excluded
         };
 
-        // Cache dir check
-        if entry.file_type.is_dir() && filter.has_cachedir_tag(&path) {
-            arena.get_mut(parent_id).flags.insert(EntryFlags::EXCLUDED);
-            continue;
-        }
-
         let meta = match entry.metadata() {
             Ok(m) => m,
             Err(_) => continue,
@@ -90,7 +84,20 @@ pub fn scan_parallel(
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned();
-        let plat = get_metadata(&meta, opts.extended);
+        let plat = get_metadata(&path, &meta, opts.extended);
+
+        // Cache dir check
+        if entry.file_type.is_dir() && filter.has_cachedir_tag(&path) {
+            let child_node = TreeNode::new_dir(
+                file_name,
+                plat.dev,
+                plat.ino,
+                EntryFlags::EXCLUDED,
+                plat.extended,
+            );
+            arena.add_child(parent_id, child_node);
+            continue;
+        }
 
         // Check filesystem boundary
         let parent_dev = arena.get(parent_id).dev;

@@ -53,6 +53,7 @@ pub struct TreeNode {
 }
 
 impl TreeNode {
+    #[allow(clippy::too_many_arguments)]
     pub fn new_file(
         name: String,
         asize: i64,

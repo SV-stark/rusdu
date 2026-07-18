@@ -262,35 +262,37 @@ pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
     let mut parents = vec![None; node_list.len()];
     let mut children_lists = vec![Vec::new(); node_list.len()];
 
-    // 1. Resolve parent-child (sub) links
-    for (parent_idx, child_block, child_offset) in parent_child_links {
-        if let Some(&child_idx) = id_map.get(&(child_block, child_offset)) {
-            parents[child_idx] = Some(parent_idx);
-            children_lists[parent_idx].push(child_idx);
+    // 1. Build sibling chains using maps of node_idx to sibling node_idx
+    let mut prev_sibling = vec![None; node_list.len()];
+    let mut next_sibling = vec![None; node_list.len()];
+    for (node_idx, prev_offset) in prev_sibling_links {
+        if let Some(&prev_idx) = id_map.get(&(root_block_num, prev_offset)) {
+            prev_sibling[node_idx] = Some(prev_idx);
+            next_sibling[prev_idx] = Some(node_idx);
         }
     }
 
-    // 2. Resolve sibling (prev) links to discover the rest of children
-    // If a node has a parent, or if a node has a sibling that has a parent, we can reconstruct everything.
-    // Actually, another way to reconstruct is:
-    // If a node A has `prev` pointing to B:
-    // - B is a sibling of A.
-    // - B must have the same parent as A.
-    // Let's propagate parent information:
-    for (node_idx, prev_offset) in prev_sibling_links {
-        if let Some(&prev_idx) = id_map.get(&(root_block_num, prev_offset)) {
-            // Sibling chain: prev_idx -> node_idx
-            // We can resolve parents:
-            if let Some(p_idx) = parents[prev_idx] {
-                parents[node_idx] = Some(p_idx);
-                if !children_lists[p_idx].contains(&node_idx) {
-                    children_lists[p_idx].push(node_idx);
+    // 2. Resolve parent-child (sub) links and propagate parent indices through sibling chains
+    for (parent_idx, child_block, child_offset) in parent_child_links {
+        if let Some(&child_idx) = id_map.get(&(child_block, child_offset)) {
+            // Propagate parent_idx to the entire sibling group
+            // First, propagate backward (prev)
+            let mut curr = Some(child_idx);
+            while let Some(idx) = curr {
+                parents[idx] = Some(parent_idx);
+                if !children_lists[parent_idx].contains(&idx) {
+                    children_lists[parent_idx].push(idx);
                 }
-            } else if let Some(p_idx) = parents[node_idx] {
-                parents[prev_idx] = Some(p_idx);
-                if !children_lists[p_idx].contains(&prev_idx) {
-                    children_lists[p_idx].push(prev_idx);
+                curr = prev_sibling[idx];
+            }
+            // Next, propagate forward (next)
+            let mut curr = next_sibling[child_idx];
+            while let Some(idx) = curr {
+                parents[idx] = Some(parent_idx);
+                if !children_lists[parent_idx].contains(&idx) {
+                    children_lists[parent_idx].push(idx);
                 }
+                curr = next_sibling[idx];
             }
         }
     }

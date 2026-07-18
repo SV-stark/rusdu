@@ -2,6 +2,7 @@ use crate::tree::{EntryFlags, NodeId, TreeArena};
 use anyhow::Result;
 use serde::Serialize;
 
+#[allow(dead_code)]
 #[derive(Serialize)]
 #[serde(untagged)]
 enum JsonItem {

@@ -140,8 +140,8 @@ fn deserialize_node(
             deserialize_node(child_val, Some(active_arena), Some(current_dir_id))?;
         }
 
-        if local_arena.is_some() {
-            Ok(local_arena.unwrap())
+        if let Some(la) = local_arena {
+            Ok(la)
         } else {
             // Dummy arena returned when nested
             Ok(TreeArena::new(TreeNode::new_dir(

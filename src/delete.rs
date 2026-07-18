@@ -43,7 +43,10 @@ pub fn delete_item(path: &Path, custom_command: Option<&str>, read_only: bool) -
         }
     } else {
         // Built-in deletion
-        if path.is_dir() {
+        let metadata = path.symlink_metadata()?;
+        if metadata.file_type().is_symlink() {
+            std::fs::remove_file(path)?;
+        } else if metadata.is_dir() {
             std::fs::remove_dir_all(path)?;
         } else {
             std::fs::remove_file(path)?;

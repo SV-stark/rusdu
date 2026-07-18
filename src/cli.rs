@@ -397,7 +397,7 @@ impl Args {
                     if args.path.is_none() {
                         args.path = Some(val.into());
                     } else {
-                        return Err(CliError::UnexpectedArgument(val.into()));
+                        return Err(CliError::UnexpectedArgument(val));
                     }
                 }
                 _ => {

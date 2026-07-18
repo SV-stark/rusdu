@@ -52,8 +52,10 @@ pub fn recalculate_stats(arena: &mut TreeArena) {
             arena.get_mut(node_id).stats = stats;
         } else {
             // It's a directory. Its children stats are already calculated!
-            let mut stats = AggregateStats::default();
-            stats.dir_count = 1;
+            let mut stats = AggregateStats {
+                dir_count: 1,
+                ..Default::default()
+            };
 
             let node = arena.get(node_id);
             let children = &node.children;
@@ -83,10 +85,18 @@ pub fn recalculate_stats(arena: &mut TreeArena) {
     }
 }
 
-fn get_post_order(arena: &TreeArena, node_id: NodeId, post_order: &mut Vec<NodeId>) {
-    let node = arena.get(node_id);
-    for &child_id in &node.children {
-        get_post_order(arena, child_id, post_order);
+fn get_post_order(arena: &TreeArena, root: NodeId, post_order: &mut Vec<NodeId>) {
+    let mut stack = vec![(root, 0)];
+
+    while let Some((node_id, child_idx)) = stack.last_mut() {
+        let node = arena.get(*node_id);
+        if *child_idx < node.children.len() {
+            let next_child = node.children[*child_idx];
+            *child_idx += 1;
+            stack.push((next_child, 0));
+        } else {
+            post_order.push(*node_id);
+            stack.pop();
+        }
     }
-    post_order.push(node_id);
 }

@@ -23,7 +23,7 @@ pub fn load_config(args: &mut crate::cli::Args) -> Result<()> {
 
     // 2. Load user config
     if let Some(mut user_config) = dirs::config_dir() {
-        user_config.push("ncdu");
+        user_config.push("rusdu");
         user_config.push("config");
         if user_config.exists() {
             append_config_args(&user_config, &mut config_args)?;
@@ -67,11 +67,7 @@ fn append_config_args(path: &Path, args: &mut Vec<String>) -> Result<()> {
 
         // Handle '@' prefix to suppress errors (in our case, we just parse it anyway,
         // but if it fails we might handle it differently. For now, just strip it or process it)
-        let clean_line = if trimmed.starts_with('@') {
-            &trimmed[1..]
-        } else {
-            trimmed
-        };
+        let clean_line = trimmed.strip_prefix('@').unwrap_or(trimmed);
 
         // Split by whitespace to extract options and values (simplistic shell word splitting)
         // Note: ncdu expects one option per line. E.g.:

@@ -80,7 +80,7 @@ pub fn export_bin(
 
     // Root_itemref: final 8 bytes pointing to root item. Absolute Itemref: Block 0, Offset 0.
     let root_offset = node_offsets.get(&root_id).cloned().unwrap_or(0) as u64;
-    let root_itemref = (0u64 << 24) | (root_offset & 0xFFFFFF);
+    let root_itemref = root_offset & 0xFFFFFF;
     index_content.extend_from_slice(&root_itemref.to_be_bytes());
 
     // Write index block

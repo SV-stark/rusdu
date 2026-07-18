@@ -28,7 +28,8 @@ pub fn spawn_shell(dir_path: &Path, read_only: bool) -> Result<()> {
     crossterm::execute!(
         std::io::stdout(),
         crossterm::terminal::LeaveAlternateScreen,
-        crossterm::cursor::Show
+        crossterm::cursor::Show,
+        crossterm::event::DisableMouseCapture
     )?;
 
     let mut cmd = Command::new(&shell_exe);
@@ -42,7 +43,8 @@ pub fn spawn_shell(dir_path: &Path, read_only: bool) -> Result<()> {
     crossterm::execute!(
         std::io::stdout(),
         crossterm::terminal::EnterAlternateScreen,
-        crossterm::cursor::Hide
+        crossterm::cursor::Hide,
+        crossterm::event::EnableMouseCapture
     )?;
 
     match status {

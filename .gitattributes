@@ -1,0 +1,11 @@
+# Normalize line endings for all text files to LF
+* text=auto eol=lf
+
+# Force LF for source files
+*.rs text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.conf text eol=lf
+
+# Binary files
+*.ncdu binary

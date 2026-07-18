@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-07-18
+
+### Added
+- Linear-time $O(N)$ sibling node chain propagation logic for binary CBOR import to handle out-of-order sibling layouts robustly.
+
+### Fixed
+- Fixed directory symlink deletion bug where recursive deletion followed symlinks and endangered target directory data.
+- Fixed terminal mouse capture leakage when spawning shell subprocesses from TUI.
+- Fixed memory allocation and UI freezing bottleneck in fuzzy search by implementing state-tracking traversal.
+- Fixed glob exclude filters to match against full path components in addition to base filenames.
+- Fixed file watcher spawning on static imported session files.
+- Resolved various compiler and clippy warnings.
+
 ## [0.2.1] - 2026-07-02
 
 ### Changed

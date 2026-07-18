@@ -4,7 +4,6 @@ use crate::scan::{ProgressMode, ScanOptions, ScanStats, update_progress};
 use crate::tree::{EntryFlags, NodeId, TreeArena, TreeNode};
 use anyhow::Result;
 use std::fs;
-use std::io::Write;
 use std::path::Path;
 
 pub fn scan_single_threaded(
@@ -25,7 +24,7 @@ pub fn scan_single_threaded(
     }
 
     let root_meta = fs::symlink_metadata(root_path)?;
-    let root_plat = get_metadata(&root_meta, opts.extended);
+    let root_plat = get_metadata(root_path, &root_meta, opts.extended);
 
     let root_node = TreeNode::new_dir(
         root_path.to_string_lossy().into_owned(),
@@ -81,13 +80,11 @@ fn walk_dir_recursive(
 
     let mut collected = Vec::new();
     let mut tag_path = None;
-    for entry in entries {
-        if let Ok(e) = entry {
-            if opts.exclude_caches && e.file_name() == "CACHEDIR.TAG" {
-                tag_path = Some(e.path());
-            }
-            collected.push(e);
+    for e in entries.flatten() {
+        if opts.exclude_caches && e.file_name() == "CACHEDIR.TAG" {
+            tag_path = Some(e.path());
         }
+        collected.push(e);
     }
 
     if let Some(path) = tag_path {
@@ -123,7 +120,7 @@ fn walk_dir_recursive(
         };
 
         let file_name = entry.file_name().to_string_lossy().into_owned();
-        let plat = get_metadata(&meta, opts.extended);
+        let plat = get_metadata(&path, &meta, opts.extended);
 
         // Check filesystem boundary
         if opts.one_file_system && plat.dev != parent_dev {
@@ -154,8 +151,8 @@ fn walk_dir_recursive(
             );
             let child_id = arena.add_child(parent_id, child_node);
 
-            if let Err(_) =
-                walk_dir_recursive(arena, child_id, &path, opts, filter, progress_mode, stats)
+            if walk_dir_recursive(arena, child_id, &path, opts, filter, progress_mode, stats)
+                .is_err()
             {
                 arena.get_mut(child_id).flags.insert(EntryFlags::READ_ERROR);
             }

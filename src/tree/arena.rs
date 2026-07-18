@@ -8,8 +8,7 @@ pub struct TreeArena {
 
 impl TreeArena {
     pub fn new(root_node: TreeNode) -> Self {
-        let mut nodes = Vec::new();
-        nodes.push(root_node);
+        let nodes = vec![root_node];
         Self {
             nodes,
             root: NodeId(0),
@@ -44,6 +43,20 @@ impl TreeArena {
             {
                 self.nodes[parent_id.0].children.remove(pos);
             }
+        }
+
+        // Recursively clean up descendants to prevent memory leaks
+        let mut stack = vec![node_id];
+        while let Some(curr_id) = stack.pop() {
+            let children = std::mem::take(&mut self.nodes[curr_id.0].children);
+            for child_id in children {
+                stack.push(child_id);
+            }
+            self.nodes[curr_id.0].name = Box::from("");
+            self.nodes[curr_id.0].extended = None;
+            self.nodes[curr_id.0].asize = 0;
+            self.nodes[curr_id.0].dsize = 0;
+            self.nodes[curr_id.0].stats = crate::tree::AggregateStats::default();
         }
     }
 }

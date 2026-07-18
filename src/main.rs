@@ -1,16 +1,12 @@
-#![allow(unused, clippy::all)]
-
 mod cli;
 mod config;
 mod delete;
 mod export;
 mod format;
-mod natsort;
 mod scan;
 mod shell;
 mod tree;
 mod ui;
-mod util;
 
 use anyhow::Result;
 use std::path::PathBuf;
@@ -59,8 +55,7 @@ fn main() -> Result<()> {
         } else {
             eprintln!("Importing from {}...", import_path.display());
         }
-        let tree = export::import_file(import_path)?;
-        tree
+        export::import_file(import_path)?
     } else {
         // Otherwise scan the directory
         let progress_mode = if args.silent {
@@ -73,11 +68,11 @@ fn main() -> Result<()> {
             let is_stdout = args
                 .export_json
                 .as_ref()
-                .map_or(false, |p| p == std::path::Path::new("-"))
+                .is_some_and(|p| p == std::path::Path::new("-"))
                 || args
                     .export_bin
                     .as_ref()
-                    .map_or(false, |p| p == std::path::Path::new("-"));
+                    .is_some_and(|p| p == std::path::Path::new("-"));
             if is_stdout {
                 scan::ProgressMode::Silent
             } else {
@@ -87,31 +82,23 @@ fn main() -> Result<()> {
             scan::ProgressMode::Fullscreen
         };
 
-        let scan_opts = scan::ScanOptions {
-            one_file_system: args.one_file_system,
-            exclude_patterns: args.exclude.clone(),
-            exclude_from: args.exclude_from.clone(),
-            exclude_caches: args.exclude_caches,
-            exclude_kernfs: args.exclude_kernfs,
-            follow_symlinks: args.follow_symlinks,
-            threads: args.threads.unwrap_or(1),
-            extended: args.extended,
-        };
-
+        let scan_opts = scan::ScanOptions::from_args(&args);
         scan::scan_directory(&scan_path, scan_opts, progress_mode)?
     };
 
     // If exporting, perform export and exit
     if let Some(ref export_json_path) = args.export_json {
         let compress = args.compress;
-        let compress_level = args.compress_level.unwrap_or(4);
+        let compress_level = args.compress_level.unwrap_or(scan::DEFAULT_COMPRESS_LEVEL);
         export::export_json(&arena, export_json_path, compress, compress_level)?;
         return Ok(());
     }
 
     if let Some(ref export_bin_path) = args.export_bin {
-        let block_size = args.export_block_size.unwrap_or(64);
-        let compress_level = args.compress_level.unwrap_or(4);
+        let block_size = args
+            .export_block_size
+            .unwrap_or(scan::DEFAULT_BLOCK_SIZE_KB);
+        let compress_level = args.compress_level.unwrap_or(scan::DEFAULT_COMPRESS_LEVEL);
         export::export_bin(&arena, export_bin_path, block_size, compress_level)?;
         return Ok(());
     }

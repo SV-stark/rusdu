@@ -16,7 +16,7 @@ pub fn read_file_maybe_compressed(path: &Path) -> Result<Vec<u8>> {
     }
 
     // Check if the file starts with the Zstandard magic header (0x28B52FFD)
-    if buffer.len() >= 4 && &buffer[0..4] == &[0x28, 0xB5, 0x2F, 0xFD] {
+    if buffer.len() >= 4 && buffer[0..4] == [0x28, 0xB5, 0x2F, 0xFD] {
         let decompressed =
             zstd::stream::decode_all(&buffer[..]).context("Failed to decompress Zstandard file")?;
         return Ok(decompressed);

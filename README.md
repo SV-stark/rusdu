@@ -88,6 +88,9 @@ cargo build --release
 ```
 The compiled binary will be located in `target/release/rusdu` (or `target/release/rusdu.exe` on Windows).
 
+> **Note**: `Cargo.lock` is committed to this repository intentionally — it is a binary crate. This ensures reproducible builds without floating dependency versions. Run `cargo update` if you want to update dependencies to their latest allowed versions.
+
+
 ---
 
 ## 📖 Usage & Commands
@@ -125,7 +128,7 @@ rusdu [PATH] [OPTIONS]
     *   `/` — **Live Interactive Filter**: Filters the current list by a case-insensitive query string.
     *   `f` / `Ctrl+F` — **Global Fuzzy Search**: Recursively fuzzy matches paths tree-wide and allows direct jumps.
     *   `Tab` / `p` — **Sidebar File Preview Panel**: Toggles a side panel showing metadata, owner info, permissions, and file content previews.
-    *   `v` — **Disk & Drive Selector**: Opens a list of logical system disks/drives to scan and select from.
+    *   `V` (Shift+v) — **Disk & Drive Selector**: Opens a list of logical system disks/drives to scan and select from.
     *   `E` (Shift+E) — **Extension Analytics**: Displays recursive file extension space-usage distribution tables and percentages.
     *   **Custom Actions & Shell Piping**: Runs custom commands with absolute paths (default bindings: `c` to copy path to clipboard, `o` to reveal in system file manager, `v` to open in editor). Add customized actions in `~/.config/rusdu/actions.conf` (Unix) or `%APPDATA%\rusdu\actions.conf` (Windows) using the format `<key>=<command>` (e.g., `e=nvim`).
 *   **Real-time File Watcher**: Automatically monitors the currently browsed directory for modifications. If a background change is detected, a yellow/red `[Disk Changed - Press 'r' to refresh]` badge appears in the header.
