@@ -1,6 +1,6 @@
 [package]
 name = "rusdu"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 description = "Rust rewrite of ncdu — NCurses Disk Usage analyzer"
 license = "MIT"

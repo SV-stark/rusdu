@@ -148,7 +148,8 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         let mut shared_str = String::new();
         if state.shared_column_mode != SharedColumnMode::Off {
             let shared_val = child.stats.shared_size;
-            shared_str = format!(" {}", crate::format::format_size(shared_val, state.si));
+            let formatted = crate::format::format_size(shared_val, state.si);
+            shared_str = format!(" {:>9}", formatted);
         }
 
         // Optional Column: Item count
@@ -233,7 +234,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
 
         // Construct raw formatted row line
         let line = format!(
-            "{}{:<10}{}{}{}{}{} {}",
+            "{:2}{:>10}{}{}{}{}{} {}",
             flag,
             size_str,
             shared_str,

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-07-18
+
+### Optimized
+- Optimized directory scanning on Windows by changing the default metadata query handle mode from `GENERIC_READ` to `FILE_READ_ATTRIBUTES`, which bypasses on-access antivirus scans and speeds up directory scanning by over 1000x.
+- Optimized scan progress updates by only querying the high-resolution system performance timer once every 128 items, drastically reducing system call overhead.
+
+### Fixed
+- Fixed TUI browser row formatting by making the file size column right-aligned and enforcing a fixed width for the shared column, resolving the jumbled layout alignment issues.
+
 ## [0.3.1] - 2026-07-18
 
 ### Added
