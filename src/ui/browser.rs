@@ -663,8 +663,47 @@ fn draw_sidebar_preview(
             Span::styled("Perms: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(format!("{:o}", ext.mode)),
         ]));
+    }
+
+    // Created & Last Modified Timestamps
+    if let Ok(meta) = full_path.symlink_metadata() {
+        let created_str = meta
+            .created()
+            .ok()
+            .map(format_system_time)
+            .unwrap_or_else(|| "N/A".to_string());
         text.push(Line::from(vec![
-            Span::styled("MTime: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled("Created: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(created_str),
+        ]));
+
+        let modified_str = meta
+            .modified()
+            .ok()
+            .map(format_system_time)
+            .unwrap_or_else(|| {
+                node.extended
+                    .as_ref()
+                    .and_then(|ext| {
+                        time::OffsetDateTime::from_unix_timestamp(ext.mtime)
+                            .ok()
+                            .map(|odt| {
+                                let format = time::macros::format_description!(
+                                    "[year]-[month]-[day] [hour]:[minute]:[second]"
+                                );
+                                odt.format(&format)
+                                    .unwrap_or_else(|_| "Unknown".to_string())
+                            })
+                    })
+                    .unwrap_or_else(|| "Unknown".to_string())
+            });
+        text.push(Line::from(vec![
+            Span::styled("Updated: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(modified_str),
+        ]));
+    } else if let Some(ref ext) = node.extended {
+        text.push(Line::from(vec![
+            Span::styled("Updated: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(
                 if let Ok(odt) = time::OffsetDateTime::from_unix_timestamp(ext.mtime) {
                     let format = time::macros::format_description!(
@@ -703,6 +742,19 @@ fn draw_sidebar_preview(
     let paragraph = Paragraph::new(text).block(block);
     f.render_widget(Clear, area);
     f.render_widget(paragraph, area);
+}
+
+fn format_system_time(st: std::time::SystemTime) -> String {
+    if let Ok(d) = st.duration_since(std::time::UNIX_EPOCH) {
+        if let Ok(odt) = time::OffsetDateTime::from_unix_timestamp(d.as_secs() as i64) {
+            let format =
+                time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
+            return odt
+                .format(&format)
+                .unwrap_or_else(|_| "Unknown".to_string());
+        }
+    }
+    "Unknown".to_string()
 }
 
 fn read_file_preview(path: &std::path::Path) -> String {
