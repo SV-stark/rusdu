@@ -56,7 +56,56 @@ impl TreeArena {
             self.nodes[curr_id.0].extended = None;
             self.nodes[curr_id.0].asize = 0;
             self.nodes[curr_id.0].dsize = 0;
-            self.nodes[curr_id.0].stats = crate::tree::AggregateStats::default();
+            self.nodes[curr_id.0].stats = None;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tree::EntryFlags;
+
+    #[test]
+    fn test_tree_arena_add_and_delete() {
+        let root = TreeNode::new_dir("root".to_string(), 1, 10, EntryFlags::empty(), None);
+        let mut arena = TreeArena::new(root);
+
+        let child1 = TreeNode::new_file(
+            "child1.txt".to_string(),
+            100,
+            512,
+            1,
+            20,
+            1,
+            EntryFlags::empty(),
+            None,
+        );
+        let child1_id = arena.add_child(arena.root, child1);
+
+        let sub_dir = TreeNode::new_dir("subdir".to_string(), 1, 30, EntryFlags::empty(), None);
+        let sub_dir_id = arena.add_child(arena.root, sub_dir);
+
+        let grand_child = TreeNode::new_file(
+            "gc.txt".to_string(),
+            200,
+            512,
+            1,
+            40,
+            1,
+            EntryFlags::empty(),
+            None,
+        );
+        let grand_child_id = arena.add_child(sub_dir_id, grand_child);
+
+        assert_eq!(arena.get(arena.root).children.len(), 2);
+        assert_eq!(arena.get(sub_dir_id).children.len(), 1);
+
+        // Delete sub_dir and verify cascading cleanup
+        arena.delete_node(sub_dir_id);
+
+        assert_eq!(arena.get(arena.root).children.len(), 1);
+        assert_eq!(arena.get(arena.root).children[0], child1_id);
+        assert_eq!(arena.get(grand_child_id).asize, 0);
     }
 }

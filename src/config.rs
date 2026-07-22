@@ -145,3 +145,18 @@ mod shell_words {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::shell_words;
+
+    #[test]
+    fn test_shell_words_split() {
+        let input = "--exclude \"*.tmp\" --threads 4 'single arg'";
+        let res = shell_words::split(input).unwrap();
+        assert_eq!(
+            res,
+            vec!["--exclude", "*.tmp", "--threads", "4", "single arg"]
+        );
+    }
+}

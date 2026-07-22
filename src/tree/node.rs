@@ -48,8 +48,8 @@ pub struct TreeNode {
     pub children: Vec<NodeId>,
     /// Parent index
     pub parent: Option<NodeId>,
-    /// Aggregated stats (recalculated/aggregated bottom-up)
-    pub stats: crate::tree::AggregateStats,
+    /// Aggregated stats (recalculated/aggregated bottom-up, allocated on-demand)
+    pub stats: Option<Box<crate::tree::AggregateStats>>,
 }
 
 impl TreeNode {
@@ -75,7 +75,7 @@ impl TreeNode {
             extended,
             children: Vec::new(),
             parent: None,
-            stats: crate::tree::AggregateStats::default(),
+            stats: None,
         }
     }
 
@@ -97,11 +97,31 @@ impl TreeNode {
             extended,
             children: Vec::new(),
             parent: None,
-            stats: crate::tree::AggregateStats::default(),
+            stats: None,
         }
     }
 
     pub fn is_dir(&self) -> bool {
         self.flags.contains(EntryFlags::IS_DIR)
+    }
+
+    pub fn get_stats(&self) -> crate::tree::AggregateStats {
+        if let Some(ref s) = self.stats {
+            **s
+        } else {
+            crate::tree::AggregateStats {
+                total_asize: self.asize,
+                total_dsize: self.dsize,
+                item_count: 1,
+                dir_count: if self.is_dir() { 1 } else { 0 },
+                file_count: if self.is_dir() { 0 } else { 1 },
+                latest_mtime: self.extended.as_ref().map(|e| e.mtime).unwrap_or(0),
+                shared_size: if self.flags.contains(EntryFlags::HARD_LINK) {
+                    self.dsize
+                } else {
+                    0
+                },
+            }
+        }
     }
 }

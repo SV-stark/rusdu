@@ -44,6 +44,23 @@ pub fn get_metadata(_path: &std::path::Path, meta: &Metadata, extended: bool) ->
 }
 
 #[cfg(windows)]
+pub fn fix_path(path: &std::path::Path) -> std::path::PathBuf {
+    if path.is_absolute() {
+        let path_str = path.to_string_lossy();
+        if !path_str.starts_with(r"\\?\") && !path_str.starts_with(r"\\.\") {
+            let clean = path_str.replace('/', "\\");
+            return std::path::PathBuf::from(format!(r"\\?\{}", clean));
+        }
+    }
+    path.to_path_buf()
+}
+
+#[cfg(not(windows))]
+pub fn fix_path(path: &std::path::Path) -> std::path::PathBuf {
+    path.to_path_buf()
+}
+
+#[cfg(windows)]
 pub fn get_metadata(path: &std::path::Path, meta: &Metadata, extended: bool) -> PlatformMetadata {
     use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::AsRawHandle;
@@ -57,23 +74,24 @@ pub fn get_metadata(path: &std::path::Path, meta: &Metadata, extended: bool) -> 
     // On Windows, fallback to apparent size or align to 4096 bytes block size
     let dsize = ((asize + 4095) / 4096) * 4096;
 
-    // Stable Windows implementation of volume serial number, file index, and link count
     let mut dev = 0u64;
     let mut ino = 0u64;
     let mut nlink = 1u32;
 
-    // Open handle to query info stably via Windows handle requesting only FILE_READ_ATTRIBUTES
-    let mut opts = std::fs::OpenOptions::new();
-    opts.access_mode(FILE_READ_ATTRIBUTES);
-    opts.custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
-    if let Ok(file) = opts.open(path) {
-        let handle = file.as_raw_handle() as _;
-        unsafe {
-            let mut info = std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>();
-            if GetFileInformationByHandle(handle, &mut info) != 0 {
-                dev = info.dwVolumeSerialNumber as u64;
-                ino = ((info.nFileIndexHigh as u64) << 32) | (info.nFileIndexLow as u64);
-                nlink = info.nNumberOfLinks;
+    // Fast-path: Only open file handle if extended metadata (mtime, dev, ino, nlink) is requested
+    if extended {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.access_mode(FILE_READ_ATTRIBUTES);
+        opts.custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+        if let Ok(file) = opts.open(path) {
+            let handle = file.as_raw_handle() as _;
+            unsafe {
+                let mut info = std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>();
+                if GetFileInformationByHandle(handle, &mut info) != 0 {
+                    dev = info.dwVolumeSerialNumber as u64;
+                    ino = ((info.nFileIndexHigh as u64) << 32) | (info.nFileIndexLow as u64);
+                    nlink = info.nNumberOfLinks;
+                }
             }
         }
     }

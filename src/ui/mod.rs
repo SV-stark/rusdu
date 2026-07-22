@@ -931,18 +931,18 @@ pub fn get_visible_children(state: &AppState, dir_id: NodeId) -> Vec<NodeId> {
             }
             "apparent-size" => {
                 let a_sz = if a.is_dir() {
-                    a.stats.total_asize
+                    a.get_stats().total_asize
                 } else {
                     a.asize
                 };
                 let b_sz = if b.is_dir() {
-                    b.stats.total_asize
+                    b.get_stats().total_asize
                 } else {
                     b.asize
                 };
                 a_sz.cmp(&b_sz)
             }
-            "itemcount" => a.stats.item_count.cmp(&b.stats.item_count),
+            "itemcount" => a.get_stats().item_count.cmp(&b.get_stats().item_count),
             "mtime" => {
                 let a_time = a.extended.as_ref().map(|e| e.mtime).unwrap_or(0);
                 let b_time = b.extended.as_ref().map(|e| e.mtime).unwrap_or(0);
@@ -951,12 +951,12 @@ pub fn get_visible_children(state: &AppState, dir_id: NodeId) -> Vec<NodeId> {
             _ => {
                 // Default: disk-usage
                 let a_sz = if a.is_dir() {
-                    a.stats.total_dsize
+                    a.get_stats().total_dsize
                 } else {
                     a.dsize
                 };
                 let b_sz = if b.is_dir() {
-                    b.stats.total_dsize
+                    b.get_stats().total_dsize
                 } else {
                     b.dsize
                 };

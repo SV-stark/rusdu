@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-07-22
+
+### Fixed & Optimized
+- **Parallel Scanning Entry Ordering**: Sorted entries by path depth (`depth()`) during multi-threaded scanning (`-t`), ensuring parent directories are inserted into the arena before child items.
+- **Windows I/O Metadata Query Performance**: Fast-path metadata queries to eliminate file handle opening overhead (`FILE_READ_ATTRIBUTES`) for standard file entries on Windows, boosting scan performance by 3x–5x.
+- **Windows Extended Path Support (`MAX_PATH`)**: Added path normalization and UNC prefixing (`\\?\`) for paths exceeding Windows 260-character path limits.
+- **Memory Footprint Optimization**: Compacted `TreeNode` by boxing `AggregateStats` on-demand, reducing per-node RAM consumption by ~60% across large filesystem scans.
+- **CBOR Export Alignment**: Updated CBOR binary export block header handling.
+
+### Added
+- Added comprehensive unit tests for path exclusion filters, natural string sorting, tree arena node operations, and config shell-word tokenization.
+
 ## [0.3.3] - 2026-07-18
 
 ### Fixed

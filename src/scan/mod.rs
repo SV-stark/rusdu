@@ -56,6 +56,8 @@ pub fn scan_directory(
     opts: ScanOptions,
     progress_mode: ProgressMode,
 ) -> anyhow::Result<TreeArena> {
+    let fixed_path = platform::fix_path(path);
+    let path = fixed_path.as_path();
     if opts.threads > 1 {
         parallel::scan_parallel(path, opts, progress_mode)
     } else {

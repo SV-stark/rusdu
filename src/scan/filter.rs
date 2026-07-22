@@ -116,3 +116,57 @@ impl Filter {
         self.verify_cachedir_tag(&tag_file_path)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn test_glob_exclusions() -> Result<()> {
+        let patterns = vec!["*.tmp".to_string(), "node_modules".to_string()];
+        let filter = Filter::new(&patterns, None, false, false)?;
+
+        assert!(filter.should_exclude_path(Path::new("test.tmp")));
+        assert!(filter.should_exclude_path(Path::new("node_modules")));
+        assert!(!filter.should_exclude_path(Path::new("main.rs")));
+        Ok(())
+    }
+
+    #[test]
+    fn test_kernfs_exclusions() -> Result<()> {
+        let filter = Filter::new(&[], None, false, true)?;
+
+        assert!(filter.should_exclude_path(Path::new("/proc/cpuinfo")));
+        assert!(filter.should_exclude_path(Path::new("/sys/class")));
+        assert!(!filter.should_exclude_path(Path::new("/home/user/doc")));
+        Ok(())
+    }
+
+    #[test]
+    fn test_verify_cachedir_tag() -> Result<()> {
+        let filter = Filter::new(&[], None, true, false)?;
+
+        let temp_dir = std::env::temp_dir();
+        let valid_path = temp_dir.join("test_valid_cachedir.tag");
+        {
+            let mut file = File::create(&valid_path)?;
+            write!(
+                file,
+                "Signature: 8a477f597d28d172789f06886806bc55\nHeader info"
+            )?;
+        }
+        assert!(filter.verify_cachedir_tag(&valid_path));
+        let _ = std::fs::remove_file(&valid_path);
+
+        let invalid_path = temp_dir.join("test_invalid_cachedir.tag");
+        {
+            let mut file = File::create(&invalid_path)?;
+            write!(file, "Invalid signature header")?;
+        }
+        assert!(!filter.verify_cachedir_tag(&invalid_path));
+        let _ = std::fs::remove_file(&invalid_path);
+
+        Ok(())
+    }
+}

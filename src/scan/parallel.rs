@@ -44,17 +44,18 @@ pub fn scan_parallel(
     let mut path_to_id = HashMap::new();
     path_to_id.insert(root_path.to_path_buf(), arena.root);
 
-    // Build the WalkDir with the specified number of threads
-    let walker = WalkDirGeneric::<((), Option<NodeId>)>::new(root_path)
+    // Build the WalkDir with the specified number of threads and sort by depth
+    // to guarantee parent directories are added to arena/path_to_id before child items.
+    let mut entries: Vec<_> = WalkDirGeneric::<((), Option<NodeId>)>::new(root_path)
         .follow_links(opts.follow_symlinks)
-        .parallelism(Parallelism::RayonNewPool(opts.threads));
+        .parallelism(Parallelism::RayonNewPool(opts.threads))
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .collect();
 
-    for entry in walker {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
+    entries.sort_by_key(|e| e.depth());
 
+    for entry in entries {
         let path = entry.path();
         if path == root_path {
             continue;

@@ -146,12 +146,13 @@ fn serialize_item_dfs(
     }
 
     if node.is_dir() {
+        let stats = node.get_stats();
         // 7: cumasize
-        fields.push((7u8, CborValue::Int(node.stats.total_asize)));
+        fields.push((7u8, CborValue::Int(stats.total_asize)));
         // 8: cumdsize
-        fields.push((8u8, CborValue::Int(node.stats.total_dsize)));
+        fields.push((8u8, CborValue::Int(stats.total_dsize)));
         // 11: items
-        fields.push((11u8, CborValue::Int(node.stats.item_count as i64)));
+        fields.push((11u8, CborValue::Int(stats.item_count as i64)));
 
         // 12: sub (first child)
         if !node.children.is_empty() {

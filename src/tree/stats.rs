@@ -1,7 +1,7 @@
 use crate::tree::{EntryFlags, NodeId, TreeArena};
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct AggregateStats {
     pub total_asize: i64,
     pub total_dsize: i64,
@@ -49,7 +49,11 @@ pub fn recalculate_stats(arena: &mut TreeArena) {
                 latest_mtime: mtime,
                 shared_size: if is_hard_link { node.dsize } else { 0 },
             };
-            arena.get_mut(node_id).stats = stats;
+            if is_hard_link {
+                arena.get_mut(node_id).stats = Some(Box::new(stats));
+            } else {
+                arena.get_mut(node_id).stats = None;
+            }
         } else {
             // It's a directory. Its children stats are already calculated!
             let mut stats = AggregateStats {
@@ -58,10 +62,10 @@ pub fn recalculate_stats(arena: &mut TreeArena) {
             };
 
             let node = arena.get(node_id);
-            let children = &node.children;
+            let children = node.children.clone();
 
-            for &child_id in children {
-                let child_stats = &arena.get(child_id).stats;
+            for child_id in children {
+                let child_stats = arena.get(child_id).get_stats();
                 stats.total_asize += child_stats.total_asize;
                 stats.total_dsize += child_stats.total_dsize;
                 stats.item_count += child_stats.item_count;
@@ -80,7 +84,7 @@ pub fn recalculate_stats(arena: &mut TreeArena) {
             let own_mtime = node.extended.as_ref().map(|e| e.mtime).unwrap_or(0);
             stats.latest_mtime = stats.latest_mtime.max(own_mtime);
 
-            arena.get_mut(node_id).stats = stats;
+            arena.get_mut(node_id).stats = Some(Box::new(stats));
         }
     }
 }

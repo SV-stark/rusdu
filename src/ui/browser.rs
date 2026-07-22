@@ -55,11 +55,12 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         .iter()
         .map(|&id| {
             let child = state.arena.get(id);
+            let stats = child.get_stats();
             if child.is_dir() {
                 if state.apparent_size {
-                    child.stats.total_asize
+                    stats.total_asize
                 } else {
-                    child.stats.total_dsize
+                    stats.total_dsize
                 }
             } else {
                 if state.apparent_size {
@@ -75,10 +76,11 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
     // Get parent cumulative size to compute percentage
     let parent_cumulative_size = {
         let parent = state.arena.get(state.current_dir);
+        let stats = parent.get_stats();
         if state.apparent_size {
-            parent.stats.total_asize
+            stats.total_asize
         } else {
-            parent.stats.total_dsize
+            stats.total_dsize
         }
     }
     .max(1);
@@ -129,11 +131,12 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         };
 
         // Format apparent/disk size
+        let stats = child.get_stats();
         let size_val = if child.is_dir() {
             if state.apparent_size {
-                child.stats.total_asize
+                stats.total_asize
             } else {
-                child.stats.total_dsize
+                stats.total_dsize
             }
         } else {
             if state.apparent_size {
@@ -147,7 +150,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         // Optional Column: Shared column
         let mut shared_str = String::new();
         if state.shared_column_mode != SharedColumnMode::Off {
-            let shared_val = child.stats.shared_size;
+            let shared_val = stats.shared_size;
             let formatted = crate::format::format_size(shared_val, state.si);
             shared_str = format!(" {:>9}", formatted);
         }
@@ -155,11 +158,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         // Optional Column: Item count
         let mut itemcount_str = String::new();
         if state.show_itemcount {
-            let items = if child.is_dir() {
-                child.stats.item_count
-            } else {
-                1
-            };
+            let items = if child.is_dir() { stats.item_count } else { 1 };
             itemcount_str = format!(" {:>5}", items);
         }
 
@@ -272,9 +271,10 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
 
     // 3. Draw Footer
     let current_dir_node = state.arena.get(state.current_dir);
-    let total_disk = crate::format::format_size(current_dir_node.stats.total_dsize, state.si);
-    let total_app = crate::format::format_size(current_dir_node.stats.total_asize, state.si);
-    let total_items = current_dir_node.stats.item_count;
+    let current_stats = current_dir_node.get_stats();
+    let total_disk = crate::format::format_size(current_stats.total_dsize, state.si);
+    let total_app = crate::format::format_size(current_stats.total_asize, state.si);
+    let total_items = current_stats.item_count;
 
     let footer_text = format!(
         " Total disk usage: {}   Apparent size: {}   Items: {}",
@@ -469,7 +469,7 @@ fn draw_info_dialog(
                 "Sub-items:     ",
                 Style::default().add_modifier(Modifier::BOLD),
             ),
-            Span::raw(node.stats.item_count.to_string()),
+            Span::raw(node.get_stats().item_count.to_string()),
         ]));
     }
 
@@ -639,17 +639,18 @@ fn draw_sidebar_preview(
     ]));
 
     if node.is_dir() {
+        let stats = node.get_stats();
         text.push(Line::from(vec![
             Span::styled("Items: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(node.stats.item_count.to_string()),
+            Span::raw(stats.item_count.to_string()),
         ]));
         text.push(Line::from(vec![
             Span::styled("Files: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(node.stats.file_count.to_string()),
+            Span::raw(stats.file_count.to_string()),
         ]));
         text.push(Line::from(vec![
             Span::styled("Dirs:  ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(node.stats.dir_count.to_string()),
+            Span::raw(stats.dir_count.to_string()),
         ]));
     }
 
