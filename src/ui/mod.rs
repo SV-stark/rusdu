@@ -1,6 +1,7 @@
 mod actions;
-mod browser;
+pub mod browser;
 mod theme;
+
 
 use crate::cli::Args;
 use crate::tree::{NodeId, TreeArena};

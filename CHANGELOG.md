@@ -5,7 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.7] - 2026-08-12
+
+### Added & Improved
+- **Dependency Updates**: Updated dependencies across crates.io to latest compatible releases under Rust 1.85 and 2024 edition.
+- **Integration Test Coverage**: Added comprehensive integration test suites for CLI flag combinations (`tests/cli_tests.rs`) and Ratatui TUI view/dialog rendering (`tests/tui_tests.rs`).
+- **Performance Benchmarking Suite**: Introduced `criterion` benchmarks (`benches/scan_benchmark.rs`) for measuring single-threaded vs multi-threaded directory traversal performance and glob exclusion filtering overhead.
+- **Library Target Exposure**: Exposed `rusdu` library target (`src/lib.rs`) for integration tests, benchmarks, and external tooling.
+
 ## [0.3.5] - 2026-07-22
+
 
 ### Added
 - **Preview Panel Timestamps**: Added live `Created` (creation timestamp) and `Updated` (last modification timestamp) rendering to the sidebar file preview panel (`Tab`/`p`).

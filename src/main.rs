@@ -1,12 +1,5 @@
-mod cli;
-mod config;
-mod delete;
-mod export;
-mod format;
-mod scan;
-mod shell;
-mod tree;
-mod ui;
+use rusdu::{cli, config, export, scan, ui};
+
 
 use anyhow::Result;
 use std::path::PathBuf;

@@ -1,7 +1,8 @@
 [package]
 name = "rusdu"
-version = "0.3.6"
+version = "0.3.7"
 edition = "2024"
+
 description = "Rust rewrite of ncdu — NCurses Disk Usage analyzer"
 license = "MIT"
 rust-version = "1.85"
@@ -42,3 +43,12 @@ windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32
 lto = true
 codegen-units = 1
 strip = true
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3.10"
+
+[[bench]]
+name = "scan_benchmark"
+harness = false
+
