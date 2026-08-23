@@ -1,7 +1,7 @@
 mod actions;
 pub mod browser;
+pub mod drives;
 mod theme;
-
 
 use crate::cli::Args;
 use crate::tree::{NodeId, TreeArena};
@@ -120,10 +120,8 @@ impl AppState {
             false
         } else if self.args.enable_refresh {
             true
-        } else if is_import {
-            false
         } else {
-            self.args.read_only < 1
+            !is_import
         }
     }
 }
@@ -240,13 +238,21 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
         // Check background refresh channel
         if let Some(ref rx) = state.refreshing_rx {
             if let Ok(res) = rx.try_recv() {
-                if let Ok(new_arena) = res {
-                    state.arena.get_mut(state.current_dir).children =
-                        new_arena.nodes[new_arena.root.0].children.clone();
-                    if state.current_dir == state.arena.root {
-                        state.arena = new_arena;
-                        state.selected_idx = 0;
-                        state.scroll_offset = 0;
+                match res {
+                    Ok(new_arena) => {
+                        if state.current_dir == state.arena.root {
+                            state.arena = new_arena;
+                            state.selected_idx = 0;
+                            state.scroll_offset = 0;
+                        } else {
+                            state.arena.replace_subtree(state.current_dir, &new_arena);
+                            crate::tree::stats::recalculate_stats(&mut state.arena);
+                            state.selected_idx = 0;
+                            state.scroll_offset = 0;
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Directory refresh failed: {}", e);
                     }
                 }
                 state.refreshing_rx = None;
@@ -257,39 +263,49 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
 
         terminal.draw(|f| browser::draw(f, &mut state))?;
 
-        if event::poll(std::time::Duration::from_millis(100))? {
+        let poll_interval = if state.args.slow_updates {
+            std::time::Duration::from_millis(500)
+        } else {
+            std::time::Duration::from_millis(100)
+        };
+
+        if event::poll(poll_interval)? {
             let ev = event::read()?;
-            if state.refreshing_rx.is_some() {
-                continue;
-            }
-            match ev {
-                Event::Key(key) => {
-                    // Ignore key releases
-                    if key.kind == event::KeyEventKind::Release {
-                        continue;
-                    }
+            if let Event::Key(key) = ev {
+                // Ignore key releases
+                if key.kind == event::KeyEventKind::Release {
+                    continue;
+                }
 
-                    // Global abort/exit checks
-                    if key.modifiers.contains(KeyModifiers::CONTROL)
-                        && key.code == KeyCode::Char('c')
-                    {
-                        break;
-                    }
+                // Global abort/exit checks
+                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+                    break;
+                }
 
-                    if state.active_dialog != Dialog::None {
-                        if handle_dialog_keys(key.code, &mut state)? {
-                            continue;
-                        }
-                    } else {
-                        if handle_browser_keys(key, &mut state)? {
+                if state.refreshing_rx.is_some() {
+                    if key.code == KeyCode::Char('q') {
+                        if state.args.confirm_quit {
+                            state.active_dialog = Dialog::ConfirmQuit;
+                        } else {
                             break;
                         }
                     }
+                    continue;
                 }
-                Event::Mouse(mouse) => {
+
+                if state.active_dialog != Dialog::None {
+                    if handle_dialog_keys(key.code, &mut state)? {
+                        continue;
+                    }
+                } else {
+                    if handle_browser_keys(key, &mut state)? {
+                        break;
+                    }
+                }
+            } else if let Event::Mouse(mouse) = ev {
+                if state.refreshing_rx.is_none() {
                     handle_mouse_event(mouse, &mut state)?;
                 }
-                _ => {}
             }
         }
     }
@@ -565,6 +581,7 @@ fn handle_dialog_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
                         .map_err(|e| e.to_string());
                         let _ = tx.send(res);
                     });
+                    state.current_dir = state.arena.root;
                     state.refreshing_rx = Some(rx);
                 }
                 _ => {}
@@ -709,25 +726,7 @@ fn handle_browser_keys(key: event::KeyEvent, state: &mut AppState) -> Result<boo
 
         // Disk/Drive Selector
         KeyCode::Char('V') => {
-            use sysinfo::Disks;
-            let disks = Disks::new_with_refreshed_list();
-            let mut drives = Vec::new();
-            for disk in &disks {
-                let name = disk.name().to_string_lossy().into_owned();
-                let mount_point = disk.mount_point().to_path_buf();
-                let total_space = disk.total_space();
-                let available_space = disk.available_space();
-                drives.push(DriveInfo {
-                    name: if name.is_empty() {
-                        "Local Disk".to_string()
-                    } else {
-                        name
-                    },
-                    mount_point,
-                    total_space,
-                    available_space,
-                });
-            }
+            let drives = drives::get_system_drives();
             state.active_dialog = Dialog::DriveSelector {
                 drives,
                 selected_idx: 0,
@@ -802,7 +801,7 @@ fn handle_browser_keys(key: event::KeyEvent, state: &mut AppState) -> Result<boo
         }
 
         // Dialogs & Actions
-        KeyCode::Char('?') => {
+        KeyCode::Char('?') | KeyCode::F(1) => {
             state.active_dialog = Dialog::Help(HelpPage::Keys);
         }
         KeyCode::Char('i') => {
@@ -817,14 +816,20 @@ fn handle_browser_keys(key: event::KeyEvent, state: &mut AppState) -> Result<boo
                     state.active_dialog = Dialog::ConfirmDelete(selected_id);
                 } else {
                     let item_path = get_node_path(&state.arena, selected_id);
-                    let _ = crate::delete::delete_item(
+                    match crate::delete::delete_item(
                         &item_path,
                         state.args.delete_command.as_deref(),
                         false,
-                    );
-                    state.arena.delete_node(selected_id);
-                    crate::tree::stats::recalculate_stats(&mut state.arena);
-                    state.update_visible_children();
+                    ) {
+                        Ok(()) => {
+                            state.arena.delete_node(selected_id);
+                            crate::tree::stats::recalculate_stats(&mut state.arena);
+                            state.update_visible_children();
+                        }
+                        Err(e) => {
+                            log::error!("Failed to delete {}: {}", item_path.display(), e);
+                        }
+                    }
                 }
             }
         }
@@ -914,7 +919,7 @@ pub fn get_visible_children(state: &AppState, dir_id: NodeId) -> Vec<NodeId> {
             }
         }
 
-        let is_desc = state.args.sort.ends_with("-desc");
+        let is_desc = !state.args.sort.ends_with("-asc");
         let sort_col = state
             .args
             .sort

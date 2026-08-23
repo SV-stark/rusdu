@@ -28,7 +28,11 @@ fn generate_test_directory(total_files: usize, depth: usize) -> TempDir {
     for dir in &dirs_to_populate {
         for i in 0..files_per_dir {
             file_counter += 1;
-            let file_path = dir.join(format!("file_{}_{}.dat", i, if i % 5 == 0 { "tmp" } else { "txt" }));
+            let file_path = dir.join(format!(
+                "file_{}_{}.dat",
+                i,
+                if i % 5 == 0 { "tmp" } else { "txt" }
+            ));
             let mut f = File::create(&file_path).unwrap();
             let dummy_data = vec![(file_counter % 255) as u8; 256];
             f.write_all(&dummy_data).unwrap();
@@ -55,6 +59,7 @@ fn bench_scan_directory(c: &mut Criterion) {
                 follow_symlinks: false,
                 threads: 1,
                 extended: false,
+                update_interval_ms: 100,
             };
             let arena = scan_directory(black_box(target_path), opts, ProgressMode::Silent)
                 .expect("Scan failed");
@@ -73,6 +78,7 @@ fn bench_scan_directory(c: &mut Criterion) {
                 follow_symlinks: false,
                 threads: 4,
                 extended: false,
+                update_interval_ms: 100,
             };
             let arena = scan_directory(black_box(target_path), opts, ProgressMode::Silent)
                 .expect("Scan failed");
@@ -91,6 +97,7 @@ fn bench_scan_directory(c: &mut Criterion) {
                 follow_symlinks: false,
                 threads: 2,
                 extended: false,
+                update_interval_ms: 100,
             };
             let arena = scan_directory(black_box(target_path), opts, ProgressMode::Silent)
                 .expect("Scan failed");

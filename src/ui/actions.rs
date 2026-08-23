@@ -7,9 +7,9 @@ use std::process::Command;
 pub fn load_custom_actions() -> HashMap<char, String> {
     let mut actions = HashMap::new();
 
-    // Default actions
-    actions.insert('c', "copy".to_string());
-    actions.insert('o', "open".to_string());
+    // Default non-conflicting actions
+    actions.insert('y', "copy".to_string());
+    actions.insert('o', "file-manager".to_string());
     actions.insert('v', "editor".to_string());
 
     if let Some(mut config_path) = dirs::config_dir() {
@@ -37,6 +37,33 @@ pub fn load_custom_actions() -> HashMap<char, String> {
         }
     }
     actions
+}
+
+struct TuiSuspender;
+
+impl TuiSuspender {
+    fn new() -> Result<Self> {
+        crossterm::terminal::disable_raw_mode()?;
+        crossterm::execute!(
+            std::io::stdout(),
+            crossterm::terminal::LeaveAlternateScreen,
+            crossterm::cursor::Show,
+            crossterm::event::DisableMouseCapture
+        )?;
+        Ok(Self)
+    }
+}
+
+impl Drop for TuiSuspender {
+    fn drop(&mut self) {
+        let _ = crossterm::terminal::enable_raw_mode();
+        let _ = crossterm::execute!(
+            std::io::stdout(),
+            crossterm::terminal::EnterAlternateScreen,
+            crossterm::cursor::Hide,
+            crossterm::event::EnableMouseCapture
+        );
+    }
 }
 
 pub fn execute_custom_action(cmd: &str, path: &Path) -> Result<()> {
@@ -92,7 +119,7 @@ pub fn execute_custom_action(cmd: &str, path: &Path) -> Result<()> {
                 }
             }
         }
-        "open" => {
+        "file-manager" | "open" => {
             #[cfg(target_os = "windows")]
             {
                 if path.is_file() {
@@ -126,14 +153,7 @@ pub fn execute_custom_action(cmd: &str, path: &Path) -> Result<()> {
                     }
                 });
 
-            // Suspend raw mode
-            crossterm::terminal::disable_raw_mode()?;
-            crossterm::execute!(
-                std::io::stdout(),
-                crossterm::terminal::LeaveAlternateScreen,
-                crossterm::cursor::Show,
-                crossterm::event::DisableMouseCapture
-            )?;
+            let _suspender = TuiSuspender::new()?;
 
             // Run editor (simple shell split)
             let mut parts = editor
@@ -149,53 +169,39 @@ pub fn execute_custom_action(cmd: &str, path: &Path) -> Result<()> {
 
             let mut child = Command::new(binary).args(&parts).spawn()?;
             child.wait()?;
-
-            // Restore TUI
-            crossterm::terminal::enable_raw_mode()?;
-            crossterm::execute!(
-                std::io::stdout(),
-                crossterm::terminal::EnterAlternateScreen,
-                crossterm::cursor::Hide,
-                crossterm::event::EnableMouseCapture
-            )?;
         }
         custom_cmd => {
-            let shell_cmd = if custom_cmd.contains("{path}") {
-                custom_cmd.replace("{path}", &path_str)
-            } else {
-                format!("{} \"{}\"", custom_cmd, path_str)
-            };
-
-            // Suspend TUI
-            crossterm::terminal::disable_raw_mode()?;
-            crossterm::execute!(
-                std::io::stdout(),
-                crossterm::terminal::LeaveAlternateScreen,
-                crossterm::cursor::Show,
-                crossterm::event::DisableMouseCapture
-            )?;
+            let _suspender = TuiSuspender::new()?;
 
             #[cfg(target_os = "windows")]
             {
-                let mut child = Command::new("powershell")
-                    .args(["-Command", &shell_cmd])
-                    .spawn()?;
+                let mut cmd = Command::new("powershell");
+                cmd.args(["-NoProfile", "-NonInteractive", "-Command"]);
+                if custom_cmd.contains("{path}") {
+                    let escaped_path = path_str.replace('`', "``").replace('"', "`\"");
+                    let script = custom_cmd.replace("{path}", &format!("\"{}\"", escaped_path));
+                    cmd.arg(&script);
+                } else {
+                    cmd.env("TARGET_PATH", &path_str);
+                    cmd.arg(format!("& {{ {} $env:TARGET_PATH }}", custom_cmd));
+                }
+                let mut child = cmd.spawn()?;
                 child.wait()?;
             }
             #[cfg(not(target_os = "windows"))]
             {
-                let mut child = Command::new("sh").args(["-c", &shell_cmd]).spawn()?;
+                let mut cmd = Command::new("sh");
+                if custom_cmd.contains("{path}") {
+                    let escaped_path = path_str.replace('\'', "'\\''");
+                    let script = custom_cmd.replace("{path}", &format!("'{}'", escaped_path));
+                    cmd.args(["-c", &script]);
+                } else {
+                    cmd.env("TARGET_PATH", &path_str);
+                    cmd.args(["-c", &format!("{} \"$TARGET_PATH\"", custom_cmd)]);
+                }
+                let mut child = cmd.spawn()?;
                 child.wait()?;
             }
-
-            // Restore TUI
-            crossterm::terminal::enable_raw_mode()?;
-            crossterm::execute!(
-                std::io::stdout(),
-                crossterm::terminal::EnterAlternateScreen,
-                crossterm::cursor::Hide,
-                crossterm::event::EnableMouseCapture
-            )?;
         }
     }
     Ok(())

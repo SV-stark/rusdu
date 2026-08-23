@@ -26,11 +26,20 @@ pub struct ScanOptions {
     pub follow_symlinks: bool,
     pub threads: usize,
     pub extended: bool,
+    pub update_interval_ms: u64,
 }
 
 impl ScanOptions {
     /// Build a `ScanOptions` from parsed CLI arguments.
     pub fn from_args(args: &Args) -> Self {
+        let update_interval_ms = if args.fast_ui_updates {
+            100
+        } else if args.slow_updates {
+            500
+        } else {
+            100
+        };
+
         Self {
             one_file_system: args.one_file_system,
             exclude_patterns: args.exclude.clone(),
@@ -40,6 +49,7 @@ impl ScanOptions {
             follow_symlinks: args.follow_symlinks,
             threads: args.threads.unwrap_or(DEFAULT_THREADS),
             extended: args.extended,
+            update_interval_ms,
         }
     }
 }
@@ -70,11 +80,30 @@ pub struct ScanStats {
     pub items_scanned: u64,
     pub size_scanned: i64,
     pub last_update: Option<std::time::Instant>,
+    pub aborted: bool,
+    pub update_interval_ms: u64,
 }
 
 pub fn update_progress(current_path: &Path, stats: &mut ScanStats, mode: ProgressMode) {
-    if mode == ProgressMode::Silent {
+    if mode == ProgressMode::Silent || stats.aborted {
         return;
+    }
+
+    // Check for user key input in Fullscreen mode (q / Ctrl+C to abort)
+    if mode == ProgressMode::Fullscreen {
+        if let Ok(true) = crossterm::event::poll(std::time::Duration::from_millis(0)) {
+            if let Ok(crossterm::event::Event::Key(key)) = crossterm::event::read() {
+                if key.code == crossterm::event::KeyCode::Char('q')
+                    || (key
+                        .modifiers
+                        .contains(crossterm::event::KeyModifiers::CONTROL)
+                        && key.code == crossterm::event::KeyCode::Char('c'))
+                {
+                    stats.aborted = true;
+                    return;
+                }
+            }
+        }
     }
 
     // Only query the timer every 128 items to minimize system call overhead
@@ -83,16 +112,24 @@ pub fn update_progress(current_path: &Path, stats: &mut ScanStats, mode: Progres
     }
 
     let now = std::time::Instant::now();
+    let interval = if stats.update_interval_ms > 0 {
+        stats.update_interval_ms
+    } else {
+        100
+    };
     if let Some(last) = stats.last_update {
-        if now.duration_since(last).as_millis() < 100 {
+        if now.duration_since(last).as_millis() < interval as u128 {
             return;
         }
     }
     stats.last_update = Some(now);
 
     let path_str = current_path.to_string_lossy();
-    let truncated_path = if path_str.len() > 50 {
-        format!("...{}", &path_str[path_str.len() - 47..])
+    let char_count = path_str.chars().count();
+    let truncated_path = if char_count > 50 {
+        let skip = char_count - 47;
+        let suffix: String = path_str.chars().skip(skip).collect();
+        format!("...{}", suffix)
     } else {
         path_str.into_owned()
     };

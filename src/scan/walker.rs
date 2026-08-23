@@ -35,7 +35,10 @@ pub fn scan_single_threaded(
     );
 
     let mut arena = TreeArena::new(root_node);
-    let mut stats = ScanStats::default();
+    let mut stats = ScanStats {
+        update_interval_ms: opts.update_interval_ms,
+        ..Default::default()
+    };
 
     let root_id = arena.root;
     walk_dir_recursive(
@@ -98,28 +101,64 @@ fn walk_dir_recursive(
 
     for entry in collected {
         let path = entry.path();
+        let file_name = entry.file_name().to_string_lossy().into_owned();
 
         // Exclude check
-        if filter.should_exclude_path(&path) {
+        if filter.is_kernfs_path(&path) {
+            let child = TreeNode::new_dir(
+                file_name,
+                parent_dev,
+                0,
+                EntryFlags::KERNFS | EntryFlags::EXCLUDED,
+                None,
+            );
+            arena.add_child(parent_id, child);
             continue;
         }
 
-        let meta = if opts.follow_symlinks {
-            match fs::metadata(&path) {
-                Ok(m) => m,
-                Err(_) => match entry.metadata() {
-                    Ok(m) => m,
+        if stats.aborted {
+            break;
+        }
+
+        if filter.is_glob_match(&path) {
+            let child = TreeNode::new_dir(file_name, parent_dev, 0, EntryFlags::EXCLUDED, None);
+            arena.add_child(parent_id, child);
+            continue;
+        }
+
+        let is_symlink = match entry.file_type() {
+            Ok(ft) => ft.is_symlink(),
+            Err(_) => false,
+        };
+
+        let (meta, is_dir_to_recurse) = if is_symlink {
+            if opts.follow_symlinks {
+                match fs::metadata(&path) {
+                    Ok(target_meta) => {
+                        // ncdu follows symlinks to files only, NEVER directories
+                        (target_meta, false)
+                    }
+                    Err(_) => match entry.metadata() {
+                        Ok(m) => (m, false),
+                        Err(_) => continue,
+                    },
+                }
+            } else {
+                match entry.metadata() {
+                    Ok(m) => (m, false),
                     Err(_) => continue,
-                },
+                }
             }
         } else {
             match entry.metadata() {
-                Ok(m) => m,
+                Ok(m) => {
+                    let is_dir = m.is_dir();
+                    (m, is_dir)
+                }
                 Err(_) => continue,
             }
         };
 
-        let file_name = entry.file_name().to_string_lossy().into_owned();
         let plat = get_metadata(&path, &meta, opts.extended);
 
         // Check filesystem boundary
@@ -141,7 +180,7 @@ fn walk_dir_recursive(
         // Update progress UI if time elapsed
         update_progress(&path, stats, progress_mode);
 
-        if meta.is_dir() {
+        if is_dir_to_recurse {
             let child_node = TreeNode::new_dir(
                 file_name,
                 plat.dev,
@@ -158,7 +197,7 @@ fn walk_dir_recursive(
             }
         } else {
             let mut flags = EntryFlags::empty();
-            if !meta.is_file() {
+            if is_symlink || !meta.is_file() {
                 flags.insert(EntryFlags::NOT_REG);
             }
             if plat.nlink > 1 {
@@ -177,6 +216,10 @@ fn walk_dir_recursive(
             );
             arena.add_child(parent_id, child_node);
         }
+    }
+
+    if arena.get(parent_id).children.is_empty() {
+        arena.get_mut(parent_id).flags.insert(EntryFlags::EMPTY_DIR);
     }
 
     Ok(())

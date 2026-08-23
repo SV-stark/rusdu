@@ -4,7 +4,7 @@ use crate::scan::{ProgressMode, ScanOptions, ScanStats, update_progress};
 use crate::tree::{EntryFlags, NodeId, TreeArena, TreeNode};
 use anyhow::Result;
 use jwalk::{Parallelism, WalkDirGeneric};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::path::Path;
 
 pub fn scan_parallel(
@@ -38,10 +38,13 @@ pub fn scan_parallel(
     );
 
     let mut arena = TreeArena::new(root_node);
-    let mut stats = ScanStats::default();
+    let mut stats = ScanStats {
+        update_interval_ms: opts.update_interval_ms,
+        ..Default::default()
+    };
 
     // Use a HashMap to map paths to NodeId in the arena
-    let mut path_to_id = HashMap::new();
+    let mut path_to_id = FxHashMap::default();
     path_to_id.insert(root_path.to_path_buf(), arena.root);
 
     // Build the WalkDir with the specified number of threads and sort by depth
@@ -61,10 +64,6 @@ pub fn scan_parallel(
             continue;
         }
 
-        if filter.should_exclude_path(&path) {
-            continue;
-        }
-
         let parent_path = match path.parent() {
             Some(p) => p,
             None => continue,
@@ -75,20 +74,64 @@ pub fn scan_parallel(
             None => continue, // Parent was not added/processed or was excluded
         };
 
-        let meta = match entry.metadata() {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-
         let file_name = path
             .file_name()
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned();
+
+        // Exclude check
+        if filter.is_kernfs_path(&path) {
+            let child_node = TreeNode::new_dir(
+                file_name,
+                arena.get(parent_id).dev,
+                0,
+                EntryFlags::KERNFS | EntryFlags::EXCLUDED,
+                None,
+            );
+            arena.add_child(parent_id, child_node);
+            continue;
+        }
+
+        if filter.is_glob_match(&path) {
+            let child_node = TreeNode::new_dir(
+                file_name,
+                arena.get(parent_id).dev,
+                0,
+                EntryFlags::EXCLUDED,
+                None,
+            );
+            arena.add_child(parent_id, child_node);
+            continue;
+        }
+
+        let is_symlink = entry.file_type.is_symlink();
+        let (meta, is_dir) = if is_symlink {
+            if opts.follow_symlinks {
+                match std::fs::metadata(&path) {
+                    Ok(target_meta) => (target_meta, false),
+                    Err(_) => match entry.metadata() {
+                        Ok(m) => (m, false),
+                        Err(_) => continue,
+                    },
+                }
+            } else {
+                match entry.metadata() {
+                    Ok(m) => (m, false),
+                    Err(_) => continue,
+                }
+            }
+        } else {
+            match entry.metadata() {
+                Ok(m) => (m, entry.file_type.is_dir()),
+                Err(_) => continue,
+            }
+        };
+
         let plat = get_metadata(&path, &meta, opts.extended);
 
         // Cache dir check
-        if entry.file_type.is_dir() && filter.has_cachedir_tag(&path) {
+        if is_dir && filter.has_cachedir_tag(&path) {
             let child_node = TreeNode::new_dir(
                 file_name,
                 plat.dev,
@@ -118,7 +161,7 @@ pub fn scan_parallel(
         stats.size_scanned += plat.dsize;
         update_progress(&path, &mut stats, progress_mode);
 
-        if entry.file_type.is_dir() {
+        if is_dir {
             let child_node = TreeNode::new_dir(
                 file_name,
                 plat.dev,
@@ -130,7 +173,7 @@ pub fn scan_parallel(
             path_to_id.insert(path.clone(), child_id);
         } else {
             let mut flags = EntryFlags::empty();
-            if !entry.file_type.is_file() {
+            if is_symlink || !entry.file_type.is_file() {
                 flags.insert(EntryFlags::NOT_REG);
             }
             if plat.nlink > 1 {
@@ -148,6 +191,15 @@ pub fn scan_parallel(
                 plat.extended,
             );
             arena.add_child(parent_id, child_node);
+        }
+    }
+
+    for i in 0..arena.nodes.len() {
+        if arena.nodes[i].is_dir()
+            && arena.nodes[i].children.is_empty()
+            && !arena.nodes[i].flags.contains(EntryFlags::READ_ERROR)
+        {
+            arena.nodes[i].flags.insert(EntryFlags::EMPTY_DIR);
         }
     }
 

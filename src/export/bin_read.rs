@@ -1,24 +1,19 @@
 use crate::tree::{EntryFlags, ExtendedInfo, NodeId, TreeArena, TreeNode};
 use anyhow::{Result, anyhow};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
-    if file_bytes.len() < 16 {
-        return Err(anyhow!("File is too short to be a valid binary export"));
-    }
-
-    // Verify signature
-    if &file_bytes[0..8] != b"\xbfncduEX1" {
+    if file_bytes.len() < 8 || &file_bytes[0..8] != b"\xbfncduEX1" {
         return Err(anyhow!("Invalid binary file signature"));
     }
 
     // Parse blocks from start to find index block at the end
     let mut offset = 8;
-    let mut data_blocks = HashMap::new();
+    let mut data_blocks = FxHashMap::default();
     let mut index_content = None;
 
     while offset < file_bytes.len() {
-        if offset + 4 > file_bytes.len() {
+        if offset + 8 > file_bytes.len() {
             break;
         }
 
@@ -26,8 +21,16 @@ pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
         let block_type = (typelen >> 28) & 0xF;
         let block_len = typelen & 0x0FFFFFFF;
 
-        if offset + block_len as usize > file_bytes.len() {
+        if block_len < 8 || offset + block_len as usize > file_bytes.len() {
             return Err(anyhow!("Malformed block length"));
+        }
+
+        // Validate footer TypeLen
+        let footer_offset = offset + block_len as usize - 4;
+        let footer_typelen =
+            u32::from_be_bytes(file_bytes[footer_offset..footer_offset + 4].try_into()?);
+        if footer_typelen != typelen {
+            return Err(anyhow!("Block header and footer TypeLen mismatch"));
         }
 
         let content_start = offset + 4;
@@ -66,172 +69,162 @@ pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
     let root_block_num = (root_itemref >> 24) as u32;
     let root_offset = (root_itemref & 0xFFFFFF) as usize;
 
-    let root_block_data = data_blocks
-        .get(&root_block_num)
-        .ok_or_else(|| anyhow!("Root data block {} not found", root_block_num))?;
-
-    // Now, decode all items in the block
-    let mut id_map = HashMap::new();
+    // Decode all items across all data blocks
+    let mut id_map = FxHashMap::default();
     let mut node_list = Vec::new();
     let mut parent_child_links = Vec::new();
     let mut prev_sibling_links = Vec::new();
 
-    let mut cursor = std::io::Cursor::new(root_block_data);
-    while (cursor.position() as usize) < root_block_data.len() {
-        let item_offset = cursor.position() as usize;
+    // Sort block numbers for deterministic decoding order
+    let mut block_nums: Vec<u32> = data_blocks.keys().cloned().collect();
+    block_nums.sort_unstable();
 
-        let value: ciborium::value::Value = match ciborium::de::from_reader(&mut cursor) {
-            Ok(val) => val,
-            Err(_) => break, // Reached end of stream
-        };
+    for block_num in block_nums {
+        let block_data = &data_blocks[&block_num];
+        let mut cursor = CborCursor::new(block_data);
 
-        let map = match value {
-            ciborium::value::Value::Map(m) => m,
-            _ => continue,
-        };
+        while !cursor.is_eof() {
+            let item_offset = cursor.pos;
 
-        // Parse fields
-        let mut item_type = 0;
-        let mut name = String::new();
-        let mut prev = None;
-        let mut asize = 0;
-        let mut dsize = 0;
-        let mut dev = 0;
-        let mut rderr = false;
-        let mut ino = 0;
-        let mut nlink = 1;
-        let mut uid = None;
-        let mut gid = None;
-        let mut mode = None;
-        let mut mtime = None;
-        let mut sub = None;
-
-        for (k, v) in map {
-            let key = match k {
-                ciborium::value::Value::Integer(i) => i.try_into().unwrap_or(255u8),
-                _ => continue,
+            let map_len = match cursor.read_map_len() {
+                Ok(l) => l,
+                Err(_) => break, // Reached end of data in block
             };
 
-            match key {
-                0 => {
-                    if let ciborium::value::Value::Integer(i) = v {
-                        item_type = i.try_into().unwrap_or(0);
+            // Parse fields according to exact ncdu 2.x specification
+            let mut item_type = 0i64;
+            let mut name = String::new();
+            let mut prev_sibling_target = None;
+            let mut asize = 0i64;
+            let mut dsize = 0i64;
+            let mut dev = 0u64;
+            let mut rderr_self = false;
+            let mut rderr_sub = false;
+            let mut sub_child = None;
+            let mut ino = 0u64;
+            let mut nlink = 1u32;
+            let mut uid = None;
+            let mut gid = None;
+            let mut mode = None;
+            let mut mtime = None;
+
+            for _ in 0..map_len {
+                let key = cursor.read_int()?;
+                match key {
+                    0 => item_type = cursor.read_int()?,
+                    1 => name = cursor.read_text()?.to_string(),
+                    2 => {
+                        let val = cursor.read_int()?;
+                        if val < 0 {
+                            let prev_offset = (item_offset as i64 + val) as usize;
+                            prev_sibling_target = Some((block_num, prev_offset));
+                        } else {
+                            let u = val as u64;
+                            let prev_block = (u >> 24) as u32;
+                            let prev_offset = (u & 0xFFFFFF) as usize;
+                            prev_sibling_target = Some((prev_block, prev_offset));
+                        }
                     }
-                }
-                1 => {
-                    if let ciborium::value::Value::Text(t) = v {
-                        name = t;
+                    3 => asize = cursor.read_int()?,
+                    4 => dsize = cursor.read_int()?,
+                    5 => dev = cursor.read_int()? as u64,
+                    6 => {
+                        let b = cursor.read_bool()?;
+                        if b {
+                            rderr_self = true;
+                        } else {
+                            rderr_sub = true;
+                        }
                     }
-                }
-                2 => {
-                    if let ciborium::value::Value::Integer(i) = v {
-                        prev = Some(i.try_into().unwrap_or(0i64));
+                    7 => {
+                        let _cumasize = cursor.read_int()?;
                     }
-                }
-                3 => {
-                    if let ciborium::value::Value::Integer(i) = v {
-                        asize = i.try_into().unwrap_or(0);
+                    8 => {
+                        let _cumdsize = cursor.read_int()?;
                     }
-                }
-                4 => {
-                    if let ciborium::value::Value::Integer(i) = v {
-                        dsize = i.try_into().unwrap_or(0);
+                    9 => {
+                        let _shrasize = cursor.read_int()?;
                     }
-                }
-                5 => {
-                    if let ciborium::value::Value::Integer(i) = v {
-                        dev = i.try_into().unwrap_or(0);
+                    10 => {
+                        let _shrdsize = cursor.read_int()?;
                     }
-                }
-                6 => {
-                    if let ciborium::value::Value::Bool(b) = v {
-                        rderr = b;
+                    11 => {
+                        let _items = cursor.read_int()?;
                     }
-                }
-                12 => {
-                    if let ciborium::value::Value::Integer(i) = v {
-                        sub = Some(i.try_into().unwrap_or(0u64));
+                    12 => {
+                        let val = cursor.read_int()?;
+                        if val < 0 {
+                            let abs_offset = (item_offset as i64 + val) as usize;
+                            sub_child = Some((block_num, abs_offset));
+                        } else {
+                            let u = val as u64;
+                            let child_block = (u >> 24) as u32;
+                            let child_offset = (u & 0xFFFFFF) as usize;
+                            sub_child = Some((child_block, child_offset));
+                        }
                     }
+                    13 => ino = cursor.read_int()? as u64,
+                    14 => nlink = cursor.read_int()? as u32,
+                    15 => uid = Some(cursor.read_int()? as u32),
+                    16 => gid = Some(cursor.read_int()? as u32),
+                    17 => mode = Some(cursor.read_int()? as u32),
+                    18 => mtime = Some(cursor.read_int()?),
+                    _ => cursor.skip_value()?,
                 }
-                13 => {
-                    if let ciborium::value::Value::Integer(i) = v {
-                        ino = i.try_into().unwrap_or(0);
-                    }
-                }
-                14 => {
-                    if let ciborium::value::Value::Integer(i) = v {
-                        nlink = i.try_into().unwrap_or(1);
-                    }
-                }
-                15 => {
-                    if let ciborium::value::Value::Integer(i) = v {
-                        uid = Some(i.try_into().unwrap_or(0));
-                    }
-                }
-                16 => {
-                    if let ciborium::value::Value::Integer(i) = v {
-                        gid = Some(i.try_into().unwrap_or(0));
-                    }
-                }
-                17 => {
-                    if let ciborium::value::Value::Integer(i) = v {
-                        mode = Some(i.try_into().unwrap_or(0));
-                    }
-                }
-                18 => {
-                    if let ciborium::value::Value::Integer(i) = v {
-                        mtime = Some(i.try_into().unwrap_or(0));
-                    }
-                }
-                _ => {}
             }
-        }
 
-        let mut flags = if item_type == 1 {
-            EntryFlags::IS_DIR
-        } else {
-            EntryFlags::empty()
-        };
-        if rderr {
-            flags.insert(EntryFlags::READ_ERROR);
-        }
-        if nlink > 1 && item_type != 1 {
-            flags.insert(EntryFlags::HARD_LINK);
-        }
+            let mut flags = match item_type {
+                1 => EntryFlags::IS_DIR,
+                2 => EntryFlags::NOT_REG,
+                3 => EntryFlags::HARD_LINK,
+                -1 => EntryFlags::READ_ERROR,
+                -2 => EntryFlags::EXCLUDED,
+                -3 => EntryFlags::OTHER_FS,
+                -4 => EntryFlags::KERNFS | EntryFlags::EXCLUDED,
+                _ => EntryFlags::empty(),
+            };
 
-        let has_extended = uid.is_some() || gid.is_some() || mode.is_some() || mtime.is_some();
-        let extended = if has_extended {
-            Some(ExtendedInfo {
-                mtime: mtime.unwrap_or(0),
-                uid: uid.unwrap_or(0),
-                gid: gid.unwrap_or(0),
-                mode: mode.unwrap_or(0) as u32,
-            })
-        } else {
-            None
-        };
+            if rderr_self {
+                flags.insert(EntryFlags::READ_ERROR);
+            }
+            if rderr_sub {
+                flags.insert(EntryFlags::SUB_ERROR);
+            }
+            if nlink > 1 && item_type != 1 {
+                flags.insert(EntryFlags::HARD_LINK);
+            }
 
-        let node = if item_type == 1 {
-            TreeNode::new_dir(name, dev, ino, flags, extended)
-        } else {
-            TreeNode::new_file(name, asize, dsize, dev, ino, nlink, flags, extended)
-        };
+            let has_extended = uid.is_some() || gid.is_some() || mode.is_some() || mtime.is_some();
+            let extended = if has_extended {
+                Some(ExtendedInfo {
+                    mtime: mtime.unwrap_or(0),
+                    uid: uid.unwrap_or(0),
+                    gid: gid.unwrap_or(0),
+                    mode: mode.unwrap_or(0),
+                })
+            } else {
+                None
+            };
 
-        let node_idx = node_list.len();
-        node_list.push(node);
-        id_map.insert((root_block_num, item_offset), node_idx);
+            let node = if item_type == 1 {
+                TreeNode::new_dir(name, dev, ino, flags, extended)
+            } else {
+                TreeNode::new_file(name, asize, dsize, dev, ino, nlink, flags, extended)
+            };
 
-        // Store sub link (first child)
-        if let Some(sub_itemref) = sub {
-            let child_block = (sub_itemref >> 24) as u32;
-            let child_offset = (sub_itemref & 0xFFFFFF) as usize;
-            parent_child_links.push((node_idx, child_block, child_offset));
-        }
+            let node_idx = node_list.len();
+            node_list.push(node);
+            id_map.insert((block_num, item_offset), node_idx);
 
-        // Store prev sibling link (relative offset)
-        if let Some(rel_prev) = prev {
-            let prev_offset = (item_offset as i64 + rel_prev) as usize;
-            prev_sibling_links.push((node_idx, prev_offset));
+            // Store sub link (last child)
+            if let Some((child_block, child_offset)) = sub_child {
+                parent_child_links.push((node_idx, child_block, child_offset));
+            }
+
+            // Store prev sibling link
+            if let Some((prev_block, prev_offset)) = prev_sibling_target {
+                prev_sibling_links.push((node_idx, prev_block, prev_offset));
+            }
         }
     }
 
@@ -239,7 +232,6 @@ pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
         return Err(anyhow!("No items decoded from binary stream"));
     }
 
-    // Now construct the TreeArena
     // Find the root node index
     let root_node_idx = *id_map
         .get(&(root_block_num, root_offset))
@@ -248,52 +240,29 @@ pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
     // Initialize arena with the root node
     let mut arena = TreeArena::new(node_list[root_node_idx].clone());
 
-    // Map list indices to NodeId in the arena
-    let mut idx_to_node_id = HashMap::new();
-    idx_to_node_id.insert(root_node_idx, arena.root);
-
-    // Add remaining nodes to arena in a topological/orderly fashion.
-    // To do this simply, we can use a queue starting from the root.
-    // We resolve links:
-    // parent -> first_child (parent_child_links)
-    // sibling -> prev_sibling (prev_sibling_links)
-    // Actually, since all nodes are in `node_list`, let's wire them up directly:
-    // Define parents and children lists for all nodes based on the links.
-    let mut parents = vec![None; node_list.len()];
     let mut children_lists = vec![Vec::new(); node_list.len()];
 
-    // 1. Build sibling chains using maps of node_idx to sibling node_idx
+    // 1. Build sibling chains
     let mut prev_sibling = vec![None; node_list.len()];
-    let mut next_sibling = vec![None; node_list.len()];
-    for (node_idx, prev_offset) in prev_sibling_links {
-        if let Some(&prev_idx) = id_map.get(&(root_block_num, prev_offset)) {
+    for (node_idx, block_num, prev_offset) in prev_sibling_links {
+        if let Some(&prev_idx) = id_map.get(&(block_num, prev_offset)) {
             prev_sibling[node_idx] = Some(prev_idx);
-            next_sibling[prev_idx] = Some(node_idx);
         }
     }
 
-    // 2. Resolve parent-child (sub) links and propagate parent indices through sibling chains
+    // 2. Resolve parent-child (sub) links: sub points to the LAST child.
+    // Walking prev_sibling backward from last_child visits all siblings right-to-left.
+    // Reversing the list gives the natural left-to-right order.
     for (parent_idx, child_block, child_offset) in parent_child_links {
-        if let Some(&child_idx) = id_map.get(&(child_block, child_offset)) {
-            // Propagate parent_idx to the entire sibling group
-            // First, propagate backward (prev)
-            let mut curr = Some(child_idx);
+        if let Some(&last_child_idx) = id_map.get(&(child_block, child_offset)) {
+            let mut list = Vec::new();
+            let mut curr = Some(last_child_idx);
             while let Some(idx) = curr {
-                parents[idx] = Some(parent_idx);
-                if !children_lists[parent_idx].contains(&idx) {
-                    children_lists[parent_idx].push(idx);
-                }
+                list.push(idx);
                 curr = prev_sibling[idx];
             }
-            // Next, propagate forward (next)
-            let mut curr = next_sibling[child_idx];
-            while let Some(idx) = curr {
-                parents[idx] = Some(parent_idx);
-                if !children_lists[parent_idx].contains(&idx) {
-                    children_lists[parent_idx].push(idx);
-                }
-                curr = next_sibling[idx];
-            }
+            list.reverse();
+            children_lists[parent_idx] = list;
         }
     }
 
@@ -320,14 +289,154 @@ fn build_arena_recursive(
     node_list: &[TreeNode],
     children_lists: &[Vec<usize>],
 ) {
-    let mut children_indices = children_lists[parent_idx].clone();
+    let children_indices = &children_lists[parent_idx];
 
-    // Sort children based on their order in the node_list/offsets to maintain order
-    children_indices.sort();
-
-    for child_idx in children_indices {
+    for &child_idx in children_indices {
         let child_node = node_list[child_idx].clone();
         let child_id = arena.add_child(parent_id, child_node);
         build_arena_recursive(arena, child_id, child_idx, node_list, children_lists);
+    }
+}
+
+struct CborCursor<'a> {
+    data: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> CborCursor<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
+    }
+
+    fn is_eof(&self) -> bool {
+        self.pos >= self.data.len()
+    }
+
+    fn read_byte(&mut self) -> Result<u8> {
+        if self.pos < self.data.len() {
+            let b = self.data[self.pos];
+            self.pos += 1;
+            Ok(b)
+        } else {
+            Err(anyhow!("Unexpected EOF reading CBOR"))
+        }
+    }
+
+    fn read_exact(&mut self, len: usize) -> Result<&'a [u8]> {
+        if self.pos + len <= self.data.len() {
+            let slice = &self.data[self.pos..self.pos + len];
+            self.pos += len;
+            Ok(slice)
+        } else {
+            Err(anyhow!("Unexpected EOF reading CBOR bytes"))
+        }
+    }
+
+    fn read_uint_val(&mut self, info: u8) -> Result<u64> {
+        match info {
+            0..=23 => Ok(info as u64),
+            24 => Ok(self.read_byte()? as u64),
+            25 => {
+                let bytes = self.read_exact(2)?;
+                Ok(u16::from_be_bytes(bytes.try_into()?) as u64)
+            }
+            26 => {
+                let bytes = self.read_exact(4)?;
+                Ok(u32::from_be_bytes(bytes.try_into()?) as u64)
+            }
+            27 => {
+                let bytes = self.read_exact(8)?;
+                Ok(u64::from_be_bytes(bytes.try_into()?))
+            }
+            _ => Err(anyhow!("Invalid CBOR integer additional info: {}", info)),
+        }
+    }
+
+    fn read_int(&mut self) -> Result<i64> {
+        let initial = self.read_byte()?;
+        let major = initial >> 5;
+        let info = initial & 0x1F;
+        match major {
+            0 => {
+                let u = self.read_uint_val(info)?;
+                Ok(u as i64)
+            }
+            1 => {
+                let u = self.read_uint_val(info)?;
+                Ok(-1 - (u as i64))
+            }
+            _ => Err(anyhow!("Expected CBOR integer, got major type {}", major)),
+        }
+    }
+
+    fn read_text(&mut self) -> Result<&'a str> {
+        let initial = self.read_byte()?;
+        let major = initial >> 5;
+        let info = initial & 0x1F;
+        if major != 3 {
+            return Err(anyhow!(
+                "Expected CBOR text string, got major type {}",
+                major
+            ));
+        }
+        let len = self.read_uint_val(info)? as usize;
+        let bytes = self.read_exact(len)?;
+        std::str::from_utf8(bytes).map_err(|e| anyhow!("Invalid UTF-8 in CBOR string: {}", e))
+    }
+
+    fn read_bool(&mut self) -> Result<bool> {
+        let b = self.read_byte()?;
+        match b {
+            0xF4 => Ok(false),
+            0xF5 => Ok(true),
+            _ => Err(anyhow!("Expected CBOR bool, got 0x{:02x}", b)),
+        }
+    }
+
+    fn read_map_len(&mut self) -> Result<usize> {
+        let initial = self.read_byte()?;
+        let major = initial >> 5;
+        let info = initial & 0x1F;
+        if major != 5 {
+            return Err(anyhow!("Expected CBOR map, got major type {}", major));
+        }
+        Ok(self.read_uint_val(info)? as usize)
+    }
+
+    fn skip_value(&mut self) -> Result<()> {
+        let initial = self.read_byte()?;
+        let major = initial >> 5;
+        let info = initial & 0x1F;
+        match major {
+            0 | 1 | 7 => {
+                let _ = self.read_uint_val(info)?;
+                Ok(())
+            }
+            2 | 3 => {
+                let len = self.read_uint_val(info)? as usize;
+                let _ = self.read_exact(len)?;
+                Ok(())
+            }
+            4 => {
+                let len = self.read_uint_val(info)? as usize;
+                for _ in 0..len {
+                    self.skip_value()?;
+                }
+                Ok(())
+            }
+            5 => {
+                let len = self.read_uint_val(info)? as usize;
+                for _ in 0..len {
+                    self.skip_value()?;
+                    self.skip_value()?;
+                }
+                Ok(())
+            }
+            6 => {
+                let _ = self.read_uint_val(info)?;
+                self.skip_value()
+            }
+            _ => Err(anyhow!("Unsupported CBOR major type: {}", major)),
+        }
     }
 }

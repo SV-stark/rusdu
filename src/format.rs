@@ -24,9 +24,7 @@ pub fn format_size(bytes: i64, si: bool) -> String {
     }
 
     // Ncdu formats with one decimal place if size < 100, else no decimal place
-    if size < 10.0 {
-        format!("{:.2} {}", size, units[unit_idx])
-    } else if size < 100.0 {
+    if size < 100.0 {
         format!("{:.1} {}", size, units[unit_idx])
     } else {
         format!("{:.0} {}", size, units[unit_idx])
@@ -40,8 +38,9 @@ mod tests {
     #[test]
     fn test_format_size() {
         assert_eq!(format_size(500, false), "500 B");
-        assert_eq!(format_size(1024, false), "1.00 KiB");
-        assert_eq!(format_size(1024 * 1024, false), "1.00 MiB");
-        assert_eq!(format_size(1000, true), "1.00 kB");
+        assert_eq!(format_size(1024, false), "1.0 KiB");
+        assert_eq!(format_size(1024 * 1024, false), "1.0 MiB");
+        assert_eq!(format_size(1000, true), "1.0 kB");
+        assert_eq!(format_size(150 * 1024 * 1024, false), "150 MiB");
     }
 }

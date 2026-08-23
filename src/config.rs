@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -21,12 +21,14 @@ pub fn load_config(args: &mut crate::cli::Args) -> Result<()> {
         }
     }
 
-    // 2. Load user config
-    if let Some(mut user_config) = dirs::config_dir() {
-        user_config.push("rusdu");
-        user_config.push("config");
-        if user_config.exists() {
-            append_config_args(&user_config, &mut config_args)?;
+    // 2. Load user config (search ~/.config/rusdu/config then ~/.config/ncdu/config)
+    if let Some(config_dir) = dirs::config_dir() {
+        let rusdu_config = config_dir.join("rusdu").join("config");
+        let ncdu_config = config_dir.join("ncdu").join("config");
+        if rusdu_config.exists() {
+            append_config_args(&rusdu_config, &mut config_args)?;
+        } else if ncdu_config.exists() {
+            append_config_args(&ncdu_config, &mut config_args)?;
         }
     }
 
@@ -42,9 +44,7 @@ pub fn load_config(args: &mut crate::cli::Args) -> Result<()> {
                 *args = parsed;
             }
             Err(e) => {
-                // If there's an error and we were parsing config files, print it unless it was suppressed
-                // Actually, let's just print the error if not run in silent/headless mode
-                eprintln!("Configuration parsing error:\n{}", e);
+                return Err(anyhow!("Configuration parsing error:\n{}", e));
             }
         }
     }
@@ -65,16 +65,11 @@ fn append_config_args(path: &Path, args: &mut Vec<String>) -> Result<()> {
             continue;
         }
 
-        // Handle '@' prefix to suppress errors (in our case, we just parse it anyway,
-        // but if it fails we might handle it differently. For now, just strip it or process it)
+        // Handle '@' prefix to suppress errors for unsupported/invalid options
+        let is_suppressed = trimmed.starts_with('@');
         let clean_line = trimmed.strip_prefix('@').unwrap_or(trimmed);
 
-        // Split by whitespace to extract options and values (simplistic shell word splitting)
-        // Note: ncdu expects one option per line. E.g.:
-        // --exclude .git
-        // or just:
-        // -e
-        // Let's split it into tokens
+        // Split by whitespace / shell words to extract options and values
         let parts = shell_words::split(clean_line).unwrap_or_else(|_| {
             clean_line
                 .split_whitespace()
@@ -82,6 +77,7 @@ fn append_config_args(path: &Path, args: &mut Vec<String>) -> Result<()> {
                 .collect()
         });
 
+        let mut line_tokens = Vec::new();
         for part in parts {
             if !part.is_empty() {
                 // Handle tilde expansion for paths (e.g. ~/excludes)
@@ -94,7 +90,19 @@ fn append_config_args(path: &Path, args: &mut Vec<String>) -> Result<()> {
                 } else {
                     part
                 };
-                args.push(expanded_part);
+                line_tokens.push(expanded_part);
+            }
+        }
+
+        if !line_tokens.is_empty() {
+            if is_suppressed {
+                let mut test_args = vec!["rusdu".to_string()];
+                test_args.extend(line_tokens.clone());
+                if crate::cli::Args::try_parse_from(&test_args).is_ok() {
+                    args.extend(line_tokens);
+                }
+            } else {
+                args.extend(line_tokens);
             }
         }
     }
@@ -102,10 +110,7 @@ fn append_config_args(path: &Path, args: &mut Vec<String>) -> Result<()> {
     Ok(())
 }
 
-// Simple implementation of shell_words::split if the crate is not loaded, but since we have it,
-// we can use standard splitting or implement a small parser. Let's write a simple token splitter
-// to avoid extra external crates if possible, but since we put `shell_words`? Wait, is it in Cargo.toml?
-// No, I did not put `shell_words` in Cargo.toml. Let's write a simple helper function.
+/// Helper module for tokenizing configuration file lines into command-line arguments.
 mod shell_words {
     pub fn split(input: &str) -> Result<Vec<String>, ()> {
         let mut words = Vec::new();

@@ -1,20 +1,15 @@
 use crate::tree::{EntryFlags, NodeId, TreeArena};
 use anyhow::Result;
 use serde::Serialize;
-
-#[allow(dead_code)]
-#[derive(Serialize)]
-#[serde(untagged)]
-enum JsonItem {
-    File(JsonFile),
-    Dir(Vec<serde_json::Value>),
-}
+use std::io::Write;
 
 #[derive(Serialize)]
 struct JsonFile {
     name: String,
     asize: i64,
     dsize: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dev: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ino: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -30,7 +25,7 @@ struct JsonFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     read_error: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    excluded: Option<bool>,
+    excluded: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     notreg: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -49,9 +44,7 @@ struct Metadata {
 }
 
 pub fn export_json(arena: &TreeArena) -> Result<Vec<u8>> {
-    let root_id = arena.root;
-    let serialized_tree = serialize_node(arena, root_id)?;
-
+    let mut out = Vec::new();
     let metadata = Metadata {
         progname: "rusdu".to_string(),
         progver: env!("CARGO_PKG_VERSION").to_string(),
@@ -61,19 +54,16 @@ pub fn export_json(arena: &TreeArena) -> Result<Vec<u8>> {
             .as_secs(),
     };
 
-    // Construct top-level array: [majorver, minorver, metadata, root_directory]
-    let top_level = (
-        1, // majorver
-        2, // minorver (with nlink and dev support)
-        metadata,
-        serialized_tree,
-    );
+    write!(out, "[1,2,")?;
+    serde_json::to_writer(&mut out, &metadata)?;
+    write!(out, ",")?;
+    write_node(arena, arena.root, &mut out)?;
+    write!(out, "]")?;
 
-    let bytes = serde_json::to_vec_pretty(&top_level)?;
-    Ok(bytes)
+    Ok(out)
 }
 
-fn serialize_node(arena: &TreeArena, node_id: NodeId) -> Result<serde_json::Value> {
+fn write_node(arena: &TreeArena, node_id: NodeId, out: &mut Vec<u8>) -> Result<()> {
     let node = arena.get(node_id);
 
     let is_read_error = node.flags.contains(EntryFlags::READ_ERROR);
@@ -83,18 +73,37 @@ fn serialize_node(arena: &TreeArena, node_id: NodeId) -> Result<serde_json::Valu
     let is_kernfs = node.flags.contains(EntryFlags::KERNFS);
     let is_hlnkc = node.flags.contains(EntryFlags::HARD_LINK);
 
+    let excluded_str = if is_kernfs {
+        Some("kernfs")
+    } else if is_othfs {
+        Some("otherfs")
+    } else if is_excluded {
+        Some("pattern")
+    } else {
+        None
+    };
+
     let item = JsonFile {
         name: node.name.to_string(),
         asize: node.asize,
         dsize: node.dsize,
-        ino: Some(node.ino),
-        nlink: Some(node.nlink),
+        dev: if node.dev != 0 { Some(node.dev) } else { None },
+        ino: if node.nlink > 1 && node.ino != 0 {
+            Some(node.ino)
+        } else {
+            None
+        },
+        nlink: if node.nlink > 1 {
+            Some(node.nlink)
+        } else {
+            None
+        },
         uid: node.extended.as_ref().map(|e| e.uid),
         gid: node.extended.as_ref().map(|e| e.gid),
         mode: node.extended.as_ref().map(|e| e.mode),
         mtime: node.extended.as_ref().map(|e| e.mtime),
         read_error: if is_read_error { Some(true) } else { None },
-        excluded: if is_excluded { Some(true) } else { None },
+        excluded: excluded_str,
         notreg: if is_not_reg { Some(true) } else { None },
         othfs: if is_othfs { Some(true) } else { None },
         kernfs: if is_kernfs { Some(true) } else { None },
@@ -102,18 +111,16 @@ fn serialize_node(arena: &TreeArena, node_id: NodeId) -> Result<serde_json::Valu
     };
 
     if node.is_dir() {
-        // Directory metadata node uses same fields
-        let metadata_val = serde_json::to_value(&item)?;
-        let mut dir_array = vec![metadata_val];
-
+        out.push(b'[');
+        serde_json::to_writer(&mut *out, &item)?;
         for &child_id in &node.children {
-            let child_val = serialize_node(arena, child_id)?;
-            dir_array.push(child_val);
+            out.push(b',');
+            write_node(arena, child_id, out)?;
         }
-
-        Ok(serde_json::Value::Array(dir_array))
+        out.push(b']');
     } else {
-        let file_val = serde_json::to_value(&item)?;
-        Ok(file_val)
+        serde_json::to_writer(&mut *out, &item)?;
     }
+
+    Ok(())
 }

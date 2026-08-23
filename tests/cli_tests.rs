@@ -11,7 +11,7 @@ fn test_default_args() {
     assert_eq!(args.read_only, 0);
     assert_eq!(args.color, "off");
     assert_eq!(args.graph_style, "hash");
-    assert_eq!(args.sort, "disk-usage");
+    assert_eq!(args.sort, "disk-usage-desc");
 }
 
 #[test]
@@ -50,7 +50,8 @@ fn test_flag_precedence_and_overrides() {
     assert!(!args.one_file_system);
 
     // cross-file-system then one-file-system
-    let args2 = Args::try_parse_from(["rusdu", "--cross-file-system", "--one-file-system"]).unwrap();
+    let args2 =
+        Args::try_parse_from(["rusdu", "--cross-file-system", "--one-file-system"]).unwrap();
     assert!(args2.one_file_system);
     assert!(!args2.cross_file_system);
 

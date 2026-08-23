@@ -1,8 +1,11 @@
 use rusdu::{cli, config, export, scan, ui};
 
-
 use anyhow::Result;
 use std::path::PathBuf;
+
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 fn main() -> Result<()> {
     let mut args = match cli::Args::parse() {

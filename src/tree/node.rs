@@ -6,17 +6,20 @@ pub struct NodeId(pub usize);
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct EntryFlags: u16 {
-        const IS_DIR       = 0b0000_0001;
-        const READ_ERROR   = 0b0000_0010;  // '!'
-        const SUB_ERROR    = 0b0000_0100;  // '.'
-        const EXCLUDED     = 0b0000_1000;  // '<'
-        const OTHER_FS     = 0b0001_0000;  // '>'
-        const KERNFS       = 0b0010_0000;  // 'F'
-        const NOT_REG      = 0b0100_0000;  // '@'
-        const HARD_LINK    = 0b1000_0000;  // 'H'
-        const EMPTY_DIR    = 0b0000_0001_0000_0000; // 'e'
+        const IS_DIR               = 0b0000_0001;
+        const READ_ERROR           = 0b0000_0010;  // '!'
+        const SUB_ERROR            = 0b0000_0100;  // '.'
+        const EXCLUDED             = 0b0000_1000;  // '<'
+        const OTHER_FS             = 0b0001_0000;  // '>'
+        const KERNFS               = 0b0010_0000;  // '^'
+        const NOT_REG              = 0b0100_0000;  // '@'
+        const HARD_LINK            = 0b1000_0000;
+        const HARD_LINK_DUPLICATE  = 0b0000_0001_0000_0000; // 'H'
+        const EMPTY_DIR            = 0b0000_0010_0000_0000; // 'e'
     }
 }
+
+pub const MAX_SIZE_LIMIT: i64 = 0x7FFF_FFFF_FFFF_FFFF; // 8 EiB - 1
 
 #[derive(Debug, Clone)]
 pub struct ExtendedInfo {
@@ -66,8 +69,8 @@ impl TreeNode {
     ) -> Self {
         Self {
             name: name.into_boxed_str(),
-            asize,
-            dsize,
+            asize: asize.clamp(0, MAX_SIZE_LIMIT),
+            dsize: dsize.clamp(0, MAX_SIZE_LIMIT),
             dev,
             ino,
             nlink,

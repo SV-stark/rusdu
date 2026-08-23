@@ -14,13 +14,12 @@ pub fn delete_item(path: &Path, custom_command: Option<&str>, read_only: bool) -
 
         #[cfg(windows)]
         {
-            let full_cmd = format!("{} \"{}\"", cmd_str, abs_path_str);
-            let mut child = Command::new("cmd")
-                .arg("/C")
-                .arg(&full_cmd)
+            let mut cmd = Command::new("cmd");
+            cmd.arg("/C")
+                .arg(format!("{} \"%NCDU_DELETE_PATH%\"", cmd_str))
                 .env("NCDU_DELETE_PATH", &*abs_path_str)
-                .env("NCDU_LEVEL", "1")
-                .spawn()?;
+                .env("NCDU_LEVEL", "1");
+            let mut child = cmd.spawn()?;
             let status = child.wait()?;
             if !status.success() {
                 return Err(anyhow!("Custom delete command failed"));
@@ -29,13 +28,12 @@ pub fn delete_item(path: &Path, custom_command: Option<&str>, read_only: bool) -
 
         #[cfg(unix)]
         {
-            let full_cmd = format!("{} '{}'", cmd_str, abs_path_str.replace("'", "'\\''"));
-            let mut child = Command::new("sh")
-                .arg("-c")
-                .arg(&full_cmd)
+            let mut cmd = Command::new("sh");
+            cmd.arg("-c")
+                .arg(format!("{} \"$NCDU_DELETE_PATH\"", cmd_str))
                 .env("NCDU_DELETE_PATH", &*abs_path_str)
-                .env("NCDU_LEVEL", "1")
-                .spawn()?;
+                .env("NCDU_LEVEL", "1");
+            let mut child = cmd.spawn()?;
             let status = child.wait()?;
             if !status.success() {
                 return Err(anyhow!("Custom delete command failed"));

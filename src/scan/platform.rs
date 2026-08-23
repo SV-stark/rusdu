@@ -61,6 +61,81 @@ pub fn fix_path(path: &std::path::Path) -> std::path::PathBuf {
 }
 
 #[cfg(windows)]
+fn get_drive_cluster_size_and_dev(path: &std::path::Path) -> (u64, u64) {
+    use std::collections::HashMap;
+    use std::hash::{Hash, Hasher};
+    use std::sync::RwLock;
+    use windows_sys::Win32::Storage::FileSystem::{GetDiskFreeSpaceW, GetVolumeInformationW};
+
+    static CACHE: std::sync::LazyLock<RwLock<HashMap<std::path::PathBuf, (u64, u64)>>> =
+        std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
+
+    let root = path
+        .components()
+        .next()
+        .map(|c| std::path::PathBuf::from(c.as_os_str()))
+        .unwrap_or_else(|| std::path::PathBuf::from("C:\\"));
+    let mut root_str = root.to_string_lossy().into_owned();
+    if !root_str.ends_with('\\') && !root_str.ends_with('/') {
+        root_str.push('\\');
+    }
+    let root_path = std::path::PathBuf::from(&root_str);
+
+    if let Ok(read_guard) = CACHE.read() {
+        if let Some(&val) = read_guard.get(&root_path) {
+            return val;
+        }
+    }
+
+    let wide_root: Vec<u16> = root_str.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut sectors_per_cluster = 0u32;
+    let mut bytes_per_sector = 0u32;
+    let mut number_of_free_clusters = 0u32;
+    let mut total_number_of_clusters = 0u32;
+    let mut cluster_size = 4096u64;
+
+    unsafe {
+        if GetDiskFreeSpaceW(
+            wide_root.as_ptr(),
+            &mut sectors_per_cluster,
+            &mut bytes_per_sector,
+            &mut number_of_free_clusters,
+            &mut total_number_of_clusters,
+        ) != 0
+            && sectors_per_cluster > 0
+            && bytes_per_sector > 0
+        {
+            cluster_size = (sectors_per_cluster as u64) * (bytes_per_sector as u64);
+        }
+    }
+
+    let mut serial_num = 0u32;
+    unsafe {
+        if GetVolumeInformationW(
+            wide_root.as_ptr(),
+            std::ptr::null_mut(),
+            0,
+            &mut serial_num,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+        ) == 0
+        {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            root_str.to_uppercase().hash(&mut hasher);
+            serial_num = hasher.finish() as u32;
+        }
+    }
+
+    let res = (cluster_size, serial_num as u64);
+    if let Ok(mut write_guard) = CACHE.write() {
+        write_guard.insert(root_path, res);
+    }
+    res
+}
+
+#[cfg(windows)]
 pub fn get_metadata(path: &std::path::Path, meta: &Metadata, extended: bool) -> PlatformMetadata {
     use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::AsRawHandle;
@@ -70,15 +145,19 @@ pub fn get_metadata(path: &std::path::Path, meta: &Metadata, extended: bool) -> 
         GetFileInformationByHandle,
     };
 
+    let (cluster_size, root_dev) = get_drive_cluster_size_and_dev(path);
     let asize = meta.len() as i64;
-    // On Windows, fallback to apparent size or align to 4096 bytes block size
-    let dsize = ((asize + 4095) / 4096) * 4096;
+    let dsize = if cluster_size > 0 {
+        ((asize as u64).div_ceil(cluster_size) * cluster_size) as i64
+    } else {
+        asize
+    };
 
-    let mut dev = 0u64;
+    let mut dev = root_dev;
     let mut ino = 0u64;
     let mut nlink = 1u32;
 
-    // Fast-path: Only open file handle if extended metadata (mtime, dev, ino, nlink) is requested
+    // Query file handle if extended metadata, inode, or hard link information is needed
     if extended {
         let mut opts = std::fs::OpenOptions::new();
         opts.access_mode(FILE_READ_ATTRIBUTES);

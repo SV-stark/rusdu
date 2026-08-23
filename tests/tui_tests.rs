@@ -84,7 +84,10 @@ fn test_tui_main_browser_render() {
 
     // Verify main components exist in rendered buffer
     assert!(content.contains("rusdu"), "Header should display app name");
-    assert!(content.contains("docs"), "Directory list should show 'docs'");
+    assert!(
+        content.contains("docs"),
+        "Directory list should show 'docs'"
+    );
 }
 
 #[test]
@@ -102,9 +105,14 @@ fn test_tui_dialog_confirm_quit() {
     let buffer = terminal.backend().buffer();
     let content = format!("{:?}", buffer);
 
-    assert!(content.contains("Quit"), "Dialog should display quit header or prompt");
-    assert!(content.contains("Really quit"), "Dialog text should ask confirmation");
-
+    assert!(
+        content.contains("Quit"),
+        "Dialog should display quit header or prompt"
+    );
+    assert!(
+        content.contains("Really quit"),
+        "Dialog text should ask confirmation"
+    );
 }
 
 #[test]
@@ -140,7 +148,10 @@ fn test_tui_filter_dialog_render() {
     let buffer = terminal.backend().buffer();
     let content = format!("{:?}", buffer);
 
-    assert!(content.contains("pdf"), "Filter dialog should display input query 'pdf'");
+    assert!(
+        content.contains("pdf"),
+        "Filter dialog should display input query 'pdf'"
+    );
 }
 
 #[test]
@@ -151,5 +162,8 @@ fn test_tui_compact_viewport_resilience() {
     let mut terminal = Terminal::new(backend).unwrap();
 
     let res = terminal.draw(|f| browser::draw(f, &mut state));
-    assert!(res.is_ok(), "TUI rendering must be resilient to small viewport sizes");
+    assert!(
+        res.is_ok(),
+        "TUI rendering must be resilient to small viewport sizes"
+    );
 }

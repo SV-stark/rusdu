@@ -52,37 +52,84 @@ impl Filter {
         })
     }
 
-    pub fn should_exclude_path(&self, path: &Path) -> bool {
-        if self.exclude_patterns.is_empty() && !self.exclude_kernfs {
+    pub fn is_kernfs_path(&self, path: &Path) -> bool {
+        if !self.exclude_kernfs {
             return false;
         }
 
-        // 1. Check glob patterns on the filename or relative path
-        if !self.exclude_patterns.is_empty() {
-            if let Some(file_name) = path.file_name() {
-                if self.exclude_patterns.is_match(file_name) {
-                    return true;
-                }
-            }
-            if self.exclude_patterns.is_match(path) {
-                return true;
-            }
-        }
-
-        // 2. Check kernfs paths if on Linux and exclude_kernfs is enabled
-        if self.exclude_kernfs {
+        #[cfg(target_os = "linux")]
+        {
             if let Some(path_str) = path.to_str() {
-                // Known pseudo-filesystem prefixes
-                let kernfs_prefixes = &["/proc/", "/sys/", "/dev/", "/run/", "/sys/fs/"];
-                for prefix in kernfs_prefixes {
-                    if path_str.starts_with(prefix) {
-                        return true;
+                if let Ok(c_path) = std::ffi::CString::new(path_str) {
+                    unsafe {
+                        let mut buf = std::mem::zeroed::<libc::statfs>();
+                        if libc::statfs(c_path.as_ptr(), &mut buf) == 0 {
+                            let f_type = buf.f_type as u64;
+                            const PROC_SUPER_MAGIC: u64 = 0x9fa0;
+                            const SYSFS_MAGIC: u64 = 0x62656572;
+                            const DEVPTS_SUPER_MAGIC: u64 = 0x1cd1;
+                            const CGROUP_SUPER_MAGIC: u64 = 0x27e0eb;
+                            const CGROUP2_SUPER_MAGIC: u64 = 0x63677270;
+                            const SECURITYFS_MAGIC: u64 = 0x73636673;
+                            const DEBUGFS_MAGIC: u64 = 0x64626720;
+                            const TRACEFS_MAGIC: u64 = 0x74726163;
+                            const BPF_FS_MAGIC: u64 = 0xcafe4a11;
+                            const RAMFS_MAGIC: u64 = 0x858458f6;
+
+                            if matches!(
+                                f_type,
+                                PROC_SUPER_MAGIC
+                                    | SYSFS_MAGIC
+                                    | DEVPTS_SUPER_MAGIC
+                                    | CGROUP_SUPER_MAGIC
+                                    | CGROUP2_SUPER_MAGIC
+                                    | SECURITYFS_MAGIC
+                                    | DEBUGFS_MAGIC
+                                    | TRACEFS_MAGIC
+                                    | BPF_FS_MAGIC
+                                    | RAMFS_MAGIC
+                            ) {
+                                return true;
+                            }
+                        }
                     }
                 }
             }
         }
 
+        if let Some(path_str) = path.to_str() {
+            let kernfs_prefixes = &[
+                "/proc",
+                "/sys",
+                "/sys/fs",
+                "/dev/pts",
+                "/sys/kernel/debug",
+                "/sys/fs/cgroup",
+                "/sys/fs/bpf",
+            ];
+            for prefix in kernfs_prefixes {
+                if path_str == *prefix || path_str.starts_with(&format!("{}/", prefix)) {
+                    return true;
+                }
+            }
+        }
         false
+    }
+
+    pub fn is_glob_match(&self, path: &Path) -> bool {
+        if self.exclude_patterns.is_empty() {
+            return false;
+        }
+        if let Some(file_name) = path.file_name() {
+            if self.exclude_patterns.is_match(file_name) {
+                return true;
+            }
+        }
+        self.exclude_patterns.is_match(path)
+    }
+
+    pub fn should_exclude_path(&self, path: &Path) -> bool {
+        self.is_glob_match(path) || self.is_kernfs_path(path)
     }
 
     pub fn verify_cachedir_tag(&self, tag_file_path: &Path) -> bool {

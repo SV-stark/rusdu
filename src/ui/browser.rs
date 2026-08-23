@@ -114,15 +114,15 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
             "!"
         } else if child.flags.contains(EntryFlags::SUB_ERROR) {
             "."
-        } else if child.flags.contains(EntryFlags::EXCLUDED) {
-            "<"
+        } else if child.flags.contains(EntryFlags::KERNFS) {
+            "^"
         } else if child.flags.contains(EntryFlags::OTHER_FS) {
             ">"
-        } else if child.flags.contains(EntryFlags::KERNFS) {
-            "F"
+        } else if child.flags.contains(EntryFlags::EXCLUDED) {
+            "<"
         } else if child.flags.contains(EntryFlags::NOT_REG) {
             "@"
-        } else if child.flags.contains(EntryFlags::HARD_LINK) {
+        } else if child.flags.contains(EntryFlags::HARD_LINK_DUPLICATE) {
             "H"
         } else if child.flags.contains(EntryFlags::EMPTY_DIR) {
             "e"
@@ -147,10 +147,14 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         };
         let size_str = crate::format::format_size(size_val, state.si);
 
-        // Optional Column: Shared column
+        // Optional Column: Shared / Unique column
         let mut shared_str = String::new();
         if state.shared_column_mode != SharedColumnMode::Off {
-            let shared_val = stats.shared_size;
+            let shared_val = if state.shared_column_mode == SharedColumnMode::Shared {
+                stats.shared_size
+            } else {
+                (stats.total_dsize - stats.shared_size).max(0)
+            };
             let formatted = crate::format::format_size(shared_val, state.si);
             shared_str = format!(" {:>9}", formatted);
         }
@@ -373,7 +377,7 @@ fn draw_help_dialog(f: &mut Frame, page: HelpPage, theme: &crate::ui::theme::The
             text.push(Line::from("  V              Open disk/drive selector"));
             text.push(Line::from("  E              Show file extension analytics"));
             text.push(Line::from(
-                "  c, o, v        Custom actions (Copy path, Open folder, Open editor)",
+                "  y, o, v        Custom actions (Copy path, Open folder, Open editor)",
             ));
             text.push(Line::from("  ?, F1          Open help screen"));
             text.push(Line::from("  q              Quit (or close dialog)"));
@@ -388,6 +392,7 @@ fn draw_help_dialog(f: &mut Frame, page: HelpPage, theme: &crate::ui::theme::The
             text.push(Line::from("  .  Error occurred reading subdirectory"));
             text.push(Line::from("  <  Excluded from statistics"));
             text.push(Line::from("  >  On another filesystem"));
+            text.push(Line::from("  ^  Linux kernel pseudo-filesystem"));
             text.push(Line::from("  @  Not a regular file (symlink, socket...)"));
             text.push(Line::from("  H  Hard link (already counted)"));
             text.push(Line::from("  e  Empty directory"));
@@ -403,7 +408,9 @@ fn draw_help_dialog(f: &mut Frame, page: HelpPage, theme: &crate::ui::theme::The
                 "  Version: {}",
                 env!("CARGO_PKG_VERSION")
             )));
-            text.push(Line::from("  Designed to be 100% compatible with ncdu 2.x"));
+            text.push(Line::from(
+                "  Compatible with ncdu export format & keybindings",
+            ));
             text.push(Line::from("  Powered by ratatui and crossterm."));
         }
     }
@@ -759,28 +766,30 @@ fn format_system_time(st: std::time::SystemTime) -> String {
 
 fn read_file_preview(path: &std::path::Path) -> String {
     use std::fs::File;
-    use std::io::{BufRead, BufReader};
+    use std::io::Read;
     if let Ok(file) = File::open(path) {
-        let reader = BufReader::new(file);
-        let mut lines = Vec::new();
-        for line in reader.lines().take(15) {
-            if let Ok(l) = line {
-                if l.chars().count() > 40 {
-                    let truncated: String = l.chars().take(40).collect();
+        let mut buf = Vec::with_capacity(16 * 1024);
+        if file.take(16 * 1024).read_to_end(&mut buf).is_ok() && !buf.is_empty() {
+            if buf.contains(&0) {
+                return "[Binary file]".to_string();
+            }
+            let text = String::from_utf8_lossy(&buf);
+            let mut lines = Vec::new();
+            for line in text.lines().take(15) {
+                if line.chars().count() > 40 {
+                    let truncated: String = line.chars().take(40).collect();
                     lines.push(format!("{}...", truncated));
                 } else {
-                    lines.push(l);
+                    lines.push(line.to_string());
                 }
-            } else {
-                break;
+            }
+            if !lines.is_empty() {
+                return lines.join("\n");
             }
         }
-        if lines.is_empty() {
-            return "[Empty file or binary data]".to_string();
-        }
-        return lines.join("\n");
+        return "[Empty file]".to_string();
     }
-    "[Preview not available]".to_string()
+    "[Error reading file]".to_string()
 }
 
 fn draw_fuzzy_search(

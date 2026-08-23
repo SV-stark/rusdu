@@ -31,6 +31,66 @@ impl TreeArena {
         child_id
     }
 
+    pub fn replace_subtree(&mut self, target_node_id: NodeId, source_arena: &TreeArena) {
+        // First, recursively clean up existing descendants of target_node_id
+        let old_children = std::mem::take(&mut self.nodes[target_node_id.0].children);
+        let mut stack = old_children;
+        while let Some(curr_id) = stack.pop() {
+            let children = std::mem::take(&mut self.nodes[curr_id.0].children);
+            for child_id in children {
+                stack.push(child_id);
+            }
+            self.nodes[curr_id.0].name = Box::from("");
+            self.nodes[curr_id.0].extended = None;
+            self.nodes[curr_id.0].asize = 0;
+            self.nodes[curr_id.0].dsize = 0;
+            self.nodes[curr_id.0].stats = None;
+        }
+
+        // Copy root metadata from source_arena root to target_node
+        let source_root = source_arena.get(source_arena.root);
+        self.nodes[target_node_id.0].dev = source_root.dev;
+        self.nodes[target_node_id.0].ino = source_root.ino;
+        self.nodes[target_node_id.0].flags = source_root.flags;
+        self.nodes[target_node_id.0].extended = source_root.extended.clone();
+        self.nodes[target_node_id.0].asize = source_root.asize;
+        self.nodes[target_node_id.0].dsize = source_root.dsize;
+
+        // Recursively clone and insert nodes from source_arena into self
+        let mut id_map = std::collections::HashMap::new();
+        id_map.insert(source_arena.root, target_node_id);
+
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(source_arena.root);
+
+        while let Some(src_id) = queue.pop_front() {
+            let parent_in_self = *id_map.get(&src_id).unwrap();
+            let src_node = source_arena.get(src_id);
+
+            for &src_child_id in &src_node.children {
+                let src_child = source_arena.get(src_child_id);
+                let new_child = TreeNode {
+                    name: src_child.name.clone(),
+                    asize: src_child.asize,
+                    dsize: src_child.dsize,
+                    dev: src_child.dev,
+                    ino: src_child.ino,
+                    nlink: src_child.nlink,
+                    flags: src_child.flags,
+                    extended: src_child.extended.clone(),
+                    parent: Some(parent_in_self),
+                    children: Vec::new(),
+                    stats: src_child.stats.clone(),
+                };
+                let new_child_id = NodeId(self.nodes.len());
+                self.nodes.push(new_child);
+                self.nodes[parent_in_self.0].children.push(new_child_id);
+                id_map.insert(src_child_id, new_child_id);
+                queue.push_back(src_child_id);
+            }
+        }
+    }
+
     pub fn delete_node(&mut self, node_id: NodeId) {
         // Safe deletion from tree. To avoid shifting all indices in Vec (which would invalidate all NodeId references),
         // we can simply remove the node from its parent's children list.

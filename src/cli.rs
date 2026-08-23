@@ -130,7 +130,7 @@ impl Default for Args {
             hide_percent: false,
             graph_style: "hash".to_string(),
             shared_column: "shared".to_string(),
-            sort: "disk-usage".to_string(),
+            sort: "disk-usage-desc".to_string(),
             enable_natsort: false,
             disable_natsort: false,
             group_directories_first: false,
@@ -182,6 +182,9 @@ impl Args {
                 }
                 Arg::Short('e') | Arg::Long("extended") => {
                     args.extended = true;
+                }
+                Arg::Long("no-extended") => {
+                    args.extended = false;
                 }
                 Arg::Long("ignore-config") => {
                     args.ignore_config = true;
@@ -297,8 +300,14 @@ impl Args {
                 Arg::Long("si") => {
                     args.si = true;
                 }
+                Arg::Long("no-si") => {
+                    args.si = false;
+                }
                 Arg::Long("apparent-size") => {
                     args.apparent_size = true;
+                }
+                Arg::Long("disk-usage") => {
+                    args.apparent_size = false;
                 }
                 Arg::Long("show-hidden") => {
                     args.show_hidden = true;
