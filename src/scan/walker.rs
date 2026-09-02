@@ -103,15 +103,30 @@ fn walk_dir_recursive(
         let path = entry.path();
         let file_name = entry.file_name().to_string_lossy().into_owned();
 
+        let is_dir_entry = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+
         // Exclude check
         if filter.is_kernfs_path(&path) {
-            let child = TreeNode::new_dir(
-                file_name,
-                parent_dev,
-                0,
-                EntryFlags::KERNFS | EntryFlags::EXCLUDED,
-                None,
-            );
+            let child = if is_dir_entry {
+                TreeNode::new_dir(
+                    file_name,
+                    parent_dev,
+                    0,
+                    EntryFlags::KERNFS | EntryFlags::EXCLUDED,
+                    None,
+                )
+            } else {
+                TreeNode::new_file(
+                    file_name,
+                    0,
+                    0,
+                    parent_dev,
+                    0,
+                    1,
+                    EntryFlags::KERNFS | EntryFlags::EXCLUDED,
+                    None,
+                )
+            };
             arena.add_child(parent_id, child);
             continue;
         }
@@ -121,7 +136,20 @@ fn walk_dir_recursive(
         }
 
         if filter.is_glob_match(&path) {
-            let child = TreeNode::new_dir(file_name, parent_dev, 0, EntryFlags::EXCLUDED, None);
+            let child = if is_dir_entry {
+                TreeNode::new_dir(file_name, parent_dev, 0, EntryFlags::EXCLUDED, None)
+            } else {
+                TreeNode::new_file(
+                    file_name,
+                    0,
+                    0,
+                    parent_dev,
+                    0,
+                    1,
+                    EntryFlags::EXCLUDED,
+                    None,
+                )
+            };
             arena.add_child(parent_id, child);
             continue;
         }

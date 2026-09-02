@@ -87,7 +87,11 @@ fn get_drive_cluster_size_and_dev(path: &std::path::Path) -> (u64, u64) {
         }
     }
 
-    let wide_root: Vec<u16> = root_str.encode_utf16().chain(std::iter::once(0)).collect();
+    let clean_root = root_str.strip_prefix(r"\\?\").unwrap_or(&root_str);
+    let wide_root: Vec<u16> = clean_root
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
     let mut sectors_per_cluster = 0u32;
     let mut bytes_per_sector = 0u32;
     let mut number_of_free_clusters = 0u32;

@@ -80,27 +80,55 @@ pub fn scan_parallel(
             .to_string_lossy()
             .into_owned();
 
+        let is_dir_entry = entry.file_type.is_dir();
+
         // Exclude check
         if filter.is_kernfs_path(&path) {
-            let child_node = TreeNode::new_dir(
-                file_name,
-                arena.get(parent_id).dev,
-                0,
-                EntryFlags::KERNFS | EntryFlags::EXCLUDED,
-                None,
-            );
+            let child_node = if is_dir_entry {
+                TreeNode::new_dir(
+                    file_name,
+                    arena.get(parent_id).dev,
+                    0,
+                    EntryFlags::KERNFS | EntryFlags::EXCLUDED,
+                    None,
+                )
+            } else {
+                TreeNode::new_file(
+                    file_name,
+                    0,
+                    0,
+                    arena.get(parent_id).dev,
+                    0,
+                    1,
+                    EntryFlags::KERNFS | EntryFlags::EXCLUDED,
+                    None,
+                )
+            };
             arena.add_child(parent_id, child_node);
             continue;
         }
 
         if filter.is_glob_match(&path) {
-            let child_node = TreeNode::new_dir(
-                file_name,
-                arena.get(parent_id).dev,
-                0,
-                EntryFlags::EXCLUDED,
-                None,
-            );
+            let child_node = if is_dir_entry {
+                TreeNode::new_dir(
+                    file_name,
+                    arena.get(parent_id).dev,
+                    0,
+                    EntryFlags::EXCLUDED,
+                    None,
+                )
+            } else {
+                TreeNode::new_file(
+                    file_name,
+                    0,
+                    0,
+                    arena.get(parent_id).dev,
+                    0,
+                    1,
+                    EntryFlags::EXCLUDED,
+                    None,
+                )
+            };
             arena.add_child(parent_id, child_node);
             continue;
         }

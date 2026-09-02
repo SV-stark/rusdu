@@ -639,3 +639,89 @@ fn test_golden_ncdu_binary_spec_vector() {
     assert_eq!(c2.nlink, 2);
     assert_eq!(c2.extended.as_ref().unwrap().uid, 1001);
 }
+
+#[test]
+fn test_stats_recalculation_skips_excluded() {
+    let root = TreeNode::new_dir("root".to_string(), 1, 10, EntryFlags::empty(), None);
+    let mut arena = TreeArena::new(root);
+
+    let active_file = TreeNode::new_file(
+        "active.txt".to_string(),
+        1000,
+        1024,
+        1,
+        20,
+        1,
+        EntryFlags::empty(),
+        None,
+    );
+    arena.add_child(arena.root, active_file);
+
+    let excluded_file = TreeNode::new_file(
+        "excluded.log".to_string(),
+        5000,
+        8192,
+        1,
+        21,
+        1,
+        EntryFlags::EXCLUDED,
+        None,
+    );
+    arena.add_child(arena.root, excluded_file);
+
+    rusdu::tree::stats::recalculate_stats(&mut arena);
+    let stats = arena.get(arena.root).get_stats();
+
+    // Excluded file must NOT be counted in parent directory stats
+    assert_eq!(stats.total_asize, 1000);
+    assert_eq!(stats.total_dsize, 1024);
+    assert_eq!(stats.file_count, 1);
+}
+
+#[test]
+fn test_excluded_file_vs_dir_scanning() {
+    let tmp = tempfile::tempdir().expect("Failed to create tempdir");
+    let test_path = tmp.path();
+
+    // Create a regular file and a directory that match exclusion
+    let exc_file_path = test_path.join("test.exclude_ext");
+    std::fs::write(&exc_file_path, b"test content 12345").unwrap();
+
+    let exc_dir_path = test_path.join("dir.exclude_ext");
+    std::fs::create_dir(&exc_dir_path).unwrap();
+
+    let keep_file_path = test_path.join("keep.txt");
+    std::fs::write(&keep_file_path, b"keep content").unwrap();
+
+    let opts = rusdu::scan::ScanOptions {
+        one_file_system: false,
+        exclude_patterns: vec!["*.exclude_ext".to_string()],
+        exclude_from: None,
+        exclude_caches: false,
+        exclude_kernfs: false,
+        follow_symlinks: false,
+        threads: 1,
+        extended: false,
+        update_interval_ms: 100,
+    };
+
+    let arena = rusdu::scan::scan_directory(test_path, opts, rusdu::scan::ProgressMode::Silent)
+        .expect("Scan failed");
+
+    let root_node = arena.get(arena.root);
+    assert_eq!(root_node.children.len(), 3);
+
+    for &child_id in &root_node.children {
+        let child = arena.get(child_id);
+        if child.name.as_ref() == "test.exclude_ext" {
+            assert!(child.flags.contains(EntryFlags::EXCLUDED));
+            assert!(
+                !child.is_dir(),
+                "Excluded file must NOT be treated as a directory"
+            );
+        } else if child.name.as_ref() == "dir.exclude_ext" {
+            assert!(child.flags.contains(EntryFlags::EXCLUDED));
+            assert!(child.is_dir(), "Excluded directory must remain a directory");
+        }
+    }
+}

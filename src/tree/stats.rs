@@ -27,7 +27,10 @@ pub fn recalculate_stats(arena: &mut TreeArena) {
             let is_hard_link = node.flags.contains(EntryFlags::HARD_LINK);
             let link_key = (node.dev, node.ino);
 
-            let (asize, dsize, is_dup) = if is_hard_link && node.ino != 0 {
+            let is_excluded = node.flags.contains(EntryFlags::EXCLUDED);
+            let (asize, dsize, is_dup) = if is_excluded {
+                (0, 0, false)
+            } else if is_hard_link && node.ino != 0 {
                 if seen_links.contains(&link_key) {
                     (0, 0, true)
                 } else {
@@ -51,11 +54,15 @@ pub fn recalculate_stats(arena: &mut TreeArena) {
                 total_dsize: dsize,
                 item_count: 0,
                 dir_count: 0,
-                file_count: 1,
+                file_count: if is_excluded { 0 } else { 1 },
                 latest_mtime: mtime,
-                shared_size: if is_hard_link { node.dsize } else { 0 },
+                shared_size: if is_hard_link && !is_excluded {
+                    node.dsize
+                } else {
+                    0
+                },
             };
-            if is_hard_link {
+            if is_hard_link || is_excluded {
                 node.stats = Some(Box::new(stats));
             } else {
                 node.stats = None;
@@ -74,6 +81,10 @@ pub fn recalculate_stats(arena: &mut TreeArena) {
                     || child_node.flags.contains(EntryFlags::SUB_ERROR)
                 {
                     has_sub_error = true;
+                }
+
+                if child_node.flags.contains(EntryFlags::EXCLUDED) {
+                    continue;
                 }
 
                 let child_stats = child_node.get_stats();
@@ -97,8 +108,14 @@ pub fn recalculate_stats(arena: &mut TreeArena) {
             if has_sub_error {
                 node.flags.insert(EntryFlags::SUB_ERROR);
             }
-            stats.total_asize = stats.total_asize.saturating_add(node.asize);
-            stats.total_dsize = stats.total_dsize.saturating_add(node.dsize);
+            if !node.flags.contains(EntryFlags::EXCLUDED) {
+                stats.total_asize = stats.total_asize.saturating_add(node.asize);
+                stats.total_dsize = stats.total_dsize.saturating_add(node.dsize);
+            } else {
+                stats.total_asize = 0;
+                stats.total_dsize = 0;
+                stats.shared_size = 0;
+            }
 
             let own_mtime = node.extended.as_ref().map(|e| e.mtime).unwrap_or(0);
             stats.latest_mtime = stats.latest_mtime.max(own_mtime);

@@ -826,9 +826,18 @@ fn draw_fuzzy_search(
         .border_style(theme.border)
         .bg(Color::Black);
 
+    let height = (popup_layout[1].height as usize).saturating_sub(2).max(1);
+    let scroll_offset = if selected_idx >= height {
+        selected_idx - height + 1
+    } else {
+        0
+    };
+    let end_idx = (scroll_offset + height).min(results.len());
+
     let mut list_items = Vec::new();
-    for (i, res) in results.iter().enumerate() {
-        let style = if i == selected_idx {
+    for (i, res) in results[scroll_offset..end_idx].iter().enumerate() {
+        let actual_idx = scroll_offset + i;
+        let style = if actual_idx == selected_idx {
             theme.selected
         } else {
             theme.file
@@ -878,8 +887,17 @@ fn draw_drive_selector(
     let size = f.area();
     let area = centered_rect(65, 55, size);
 
+    let height = (area.height as usize).saturating_sub(2).max(1);
+    let scroll_offset = if selected_idx >= height {
+        selected_idx - height + 1
+    } else {
+        0
+    };
+    let end_idx = (scroll_offset + height).min(drives.len());
+
     let mut list_items = Vec::new();
-    for (i, drive) in drives.iter().enumerate() {
+    for (i, drive) in drives[scroll_offset..end_idx].iter().enumerate() {
+        let actual_idx = scroll_offset + i;
         let line = format!(
             "  {:<15} [{}] (Free: {} / Total: {})",
             drive.name,
@@ -887,7 +905,7 @@ fn draw_drive_selector(
             crate::format::format_size(drive.available_space as i64, state.si),
             crate::format::format_size(drive.total_space as i64, state.si)
         );
-        let style = if i == selected_idx {
+        let style = if actual_idx == selected_idx {
             theme.selected
         } else {
             theme.dir

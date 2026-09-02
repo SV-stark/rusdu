@@ -56,6 +56,12 @@ pub struct AppState {
 impl AppState {
     pub fn update_visible_children(&mut self) {
         self.visible_children = get_visible_children(self, self.current_dir);
+        if self.visible_children.is_empty() {
+            self.selected_idx = 0;
+            self.scroll_offset = 0;
+        } else if self.selected_idx >= self.visible_children.len() {
+            self.selected_idx = self.visible_children.len() - 1;
+        }
     }
 
     pub fn setup_watcher(&mut self) {
@@ -461,6 +467,8 @@ fn handle_dialog_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
                         state.filter_query = Some(q);
                     }
                     state.active_dialog = Dialog::None;
+                    state.selected_idx = 0;
+                    state.scroll_offset = 0;
                     state.update_visible_children();
                 }
                 KeyCode::Backspace => {
@@ -1095,6 +1103,15 @@ fn jump_to_node(state: &mut AppState, target_id: NodeId) {
     state.current_dir = state.arena.root;
     state.selected_idx = 0;
     state.scroll_offset = 0;
+
+    if state
+        .arena
+        .get(target_id)
+        .flags
+        .contains(crate::tree::EntryFlags::EXCLUDED)
+    {
+        state.show_hidden = true;
+    }
 
     let (target_dir, focus_id) = if state.arena.get(target_id).is_dir() {
         (target_id, None)
