@@ -163,7 +163,7 @@ fn serialize_item_dfs(
     fields.push((0u8, CborValue::Int(item_type)));
 
     // 1: name
-    fields.push((1u8, CborValue::Text(node.name.to_string())));
+    fields.push((1u8, CborValue::Text(&node.name)));
 
     // 2: prev (relative Itemref if same block, or absolute if different block)
     if let Some(prev_id) = prev_sibling_id {
@@ -263,7 +263,7 @@ fn serialize_item_dfs(
                 encode_cbor_int(buf, val);
             }
             CborValue::Text(s) => {
-                encode_cbor_text(buf, &s);
+                encode_cbor_text(buf, s);
             }
             CborValue::Bool(b) => {
                 if b {
@@ -282,9 +282,10 @@ fn serialize_item_dfs(
     }
 
     // Recursively serialize children
-    let children = node.children.clone();
+    let num_children = arena.get(node_id).children.len();
     let mut prev_child = None;
-    for child_id in children {
+    for i in 0..num_children {
+        let child_id = arena.get(node_id).children[i];
         serialize_item_dfs(
             arena,
             child_id,
@@ -300,9 +301,9 @@ fn serialize_item_dfs(
     Ok(())
 }
 
-enum CborValue {
+enum CborValue<'a> {
     Int(i64),
-    Text(String),
+    Text(&'a str),
     Bool(bool),
     PlaceholderU64,
 }
@@ -326,8 +327,9 @@ fn encode_cbor_int(buf: &mut Vec<u8>, val: i64) {
             buf.extend_from_slice(&u.to_be_bytes());
         }
     } else {
-        let n = -1 - val;
-        let u = n as u64;
+        // In two's complement, -1 - val == !val for all negative integers,
+        // which safely avoids signed overflow on i64::MIN.
+        let u = (!val) as u64;
         if u < 24 {
             buf.push(0x20 | (u as u8));
         } else if u <= 0xff {

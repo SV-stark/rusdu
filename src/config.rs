@@ -131,8 +131,7 @@ mod shell_words {
                 in_single_quote = !in_single_quote;
             } else if c.is_whitespace() && !in_double_quote && !in_single_quote {
                 if !word.is_empty() {
-                    words.push(word.clone());
-                    word.clear();
+                    words.push(std::mem::take(&mut word));
                 }
             } else {
                 word.push(c);

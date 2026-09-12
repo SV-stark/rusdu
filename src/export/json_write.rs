@@ -4,8 +4,8 @@ use serde::Serialize;
 use std::io::Write;
 
 #[derive(Serialize)]
-struct JsonFile {
-    name: String,
+struct JsonFile<'a> {
+    name: &'a str,
     asize: i64,
     dsize: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -37,17 +37,17 @@ struct JsonFile {
 }
 
 #[derive(Serialize)]
-struct Metadata {
-    progname: String,
-    progver: String,
+struct Metadata<'a> {
+    progname: &'a str,
+    progver: &'a str,
     timestamp: u64,
 }
 
 pub fn export_json(arena: &TreeArena) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     let metadata = Metadata {
-        progname: "rusdu".to_string(),
-        progver: env!("CARGO_PKG_VERSION").to_string(),
+        progname: "rusdu",
+        progver: env!("CARGO_PKG_VERSION"),
         timestamp: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -84,7 +84,7 @@ fn write_node(arena: &TreeArena, node_id: NodeId, out: &mut Vec<u8>) -> Result<(
     };
 
     let item = JsonFile {
-        name: node.name.to_string(),
+        name: &node.name,
         asize: node.asize,
         dsize: node.dsize,
         dev: if node.dev != 0 { Some(node.dev) } else { None },

@@ -139,4 +139,11 @@ fn test_error_handling() {
     // Parse int error for threads wrapped in Lexopt error
     let err_threads = Args::try_parse_from(["rusdu", "-t", "not_a_number"]);
     assert!(matches!(err_threads, Err(CliError::Lexopt(_))));
+
+    // Pure parsing returns HelpRequested / VersionRequested instead of process::exit
+    let err_help = Args::try_parse_from(["rusdu", "--help"]);
+    assert!(matches!(err_help, Err(CliError::HelpRequested)));
+
+    let err_version = Args::try_parse_from(["rusdu", "--version"]);
+    assert!(matches!(err_version, Err(CliError::VersionRequested)));
 }

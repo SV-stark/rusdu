@@ -28,18 +28,21 @@ impl Filter {
 
         // Compile patterns from file
         if let Some(file_path) = exclude_from {
-            if file_path.exists() {
-                let file = File::open(file_path)?;
-                let reader = std::io::BufReader::new(file);
-                for line in std::io::BufRead::lines(reader) {
-                    let line = line?;
-                    let trimmed = line.trim();
-                    if !trimmed.is_empty() && !trimmed.starts_with('#') {
-                        if let Ok(glob) = Glob::new(trimmed) {
-                            builder.add(glob);
+            match File::open(file_path) {
+                Ok(file) => {
+                    let reader = std::io::BufReader::new(file);
+                    for line in std::io::BufRead::lines(reader) {
+                        let line = line?;
+                        let trimmed = line.trim();
+                        if !trimmed.is_empty() && !trimmed.starts_with('#') {
+                            if let Ok(glob) = Glob::new(trimmed) {
+                                builder.add(glob);
+                            }
                         }
                     }
                 }
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => return Err(err.into()),
             }
         }
 
@@ -61,36 +64,38 @@ impl Filter {
         {
             if let Some(path_str) = path.to_str() {
                 if let Ok(c_path) = std::ffi::CString::new(path_str) {
-                    unsafe {
-                        let mut buf = std::mem::zeroed::<libc::statfs>();
-                        if libc::statfs(c_path.as_ptr(), &mut buf) == 0 {
-                            let f_type = buf.f_type as u64;
-                            const PROC_SUPER_MAGIC: u64 = 0x9fa0;
-                            const SYSFS_MAGIC: u64 = 0x62656572;
-                            const DEVPTS_SUPER_MAGIC: u64 = 0x1cd1;
-                            const CGROUP_SUPER_MAGIC: u64 = 0x27e0eb;
-                            const CGROUP2_SUPER_MAGIC: u64 = 0x63677270;
-                            const SECURITYFS_MAGIC: u64 = 0x73636673;
-                            const DEBUGFS_MAGIC: u64 = 0x64626720;
-                            const TRACEFS_MAGIC: u64 = 0x74726163;
-                            const BPF_FS_MAGIC: u64 = 0xcafe4a11;
-                            const RAMFS_MAGIC: u64 = 0x858458f6;
+                    let mut buf = std::mem::MaybeUninit::<libc::statfs>::uninit();
+                    // SAFETY: c_path is a valid null-terminated C string, and buf points to valid uninitialized memory for libc::statfs.
+                    let res = unsafe { libc::statfs(c_path.as_ptr(), buf.as_mut_ptr()) };
+                    if res == 0 {
+                        // SAFETY: libc::statfs returned 0 indicating buf was successfully initialized.
+                        let buf = unsafe { buf.assume_init() };
+                        let f_type = buf.f_type as u64;
+                        const PROC_SUPER_MAGIC: u64 = 0x9fa0;
+                        const SYSFS_MAGIC: u64 = 0x62656572;
+                        const DEVPTS_SUPER_MAGIC: u64 = 0x1cd1;
+                        const CGROUP_SUPER_MAGIC: u64 = 0x27e0eb;
+                        const CGROUP2_SUPER_MAGIC: u64 = 0x63677270;
+                        const SECURITYFS_MAGIC: u64 = 0x73636673;
+                        const DEBUGFS_MAGIC: u64 = 0x64626720;
+                        const TRACEFS_MAGIC: u64 = 0x74726163;
+                        const BPF_FS_MAGIC: u64 = 0xcafe4a11;
+                        const RAMFS_MAGIC: u64 = 0x858458f6;
 
-                            if matches!(
-                                f_type,
-                                PROC_SUPER_MAGIC
-                                    | SYSFS_MAGIC
-                                    | DEVPTS_SUPER_MAGIC
-                                    | CGROUP_SUPER_MAGIC
-                                    | CGROUP2_SUPER_MAGIC
-                                    | SECURITYFS_MAGIC
-                                    | DEBUGFS_MAGIC
-                                    | TRACEFS_MAGIC
-                                    | BPF_FS_MAGIC
-                                    | RAMFS_MAGIC
-                            ) {
-                                return true;
-                            }
+                        if matches!(
+                            f_type,
+                            PROC_SUPER_MAGIC
+                                | SYSFS_MAGIC
+                                | DEVPTS_SUPER_MAGIC
+                                | CGROUP_SUPER_MAGIC
+                                | CGROUP2_SUPER_MAGIC
+                                | SECURITYFS_MAGIC
+                                | DEBUGFS_MAGIC
+                                | TRACEFS_MAGIC
+                                | BPF_FS_MAGIC
+                                | RAMFS_MAGIC
+                        ) {
+                            return true;
                         }
                     }
                 }
@@ -108,7 +113,11 @@ impl Filter {
                 "/sys/fs/bpf",
             ];
             for prefix in kernfs_prefixes {
-                if path_str == *prefix || path_str.starts_with(&format!("{}/", prefix)) {
+                if path_str == *prefix
+                    || path_str
+                        .strip_prefix(prefix)
+                        .is_some_and(|rest| rest.starts_with('/'))
+                {
                     return true;
                 }
             }

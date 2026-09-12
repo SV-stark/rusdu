@@ -98,24 +98,24 @@ fn get_drive_cluster_size_and_dev(path: &std::path::Path) -> (u64, u64) {
     let mut total_number_of_clusters = 0u32;
     let mut cluster_size = 4096u64;
 
-    unsafe {
-        if GetDiskFreeSpaceW(
+    // SAFETY: wide_root is a null-terminated UTF-16 string and the out-pointers point to valid mutable u32 integers.
+    let ok = unsafe {
+        GetDiskFreeSpaceW(
             wide_root.as_ptr(),
             &mut sectors_per_cluster,
             &mut bytes_per_sector,
             &mut number_of_free_clusters,
             &mut total_number_of_clusters,
-        ) != 0
-            && sectors_per_cluster > 0
-            && bytes_per_sector > 0
-        {
-            cluster_size = (sectors_per_cluster as u64) * (bytes_per_sector as u64);
-        }
+        )
+    };
+    if ok != 0 && sectors_per_cluster > 0 && bytes_per_sector > 0 {
+        cluster_size = (sectors_per_cluster as u64) * (bytes_per_sector as u64);
     }
 
     let mut serial_num = 0u32;
-    unsafe {
-        if GetVolumeInformationW(
+    // SAFETY: wide_root is null-terminated and &mut serial_num is a valid pointer to u32.
+    let ok = unsafe {
+        GetVolumeInformationW(
             wide_root.as_ptr(),
             std::ptr::null_mut(),
             0,
@@ -124,12 +124,12 @@ fn get_drive_cluster_size_and_dev(path: &std::path::Path) -> (u64, u64) {
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             0,
-        ) == 0
-        {
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            root_str.to_uppercase().hash(&mut hasher);
-            serial_num = hasher.finish() as u32;
-        }
+        )
+    };
+    if ok == 0 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        root_str.to_uppercase().hash(&mut hasher);
+        serial_num = hasher.finish() as u32;
     }
 
     let res = (cluster_size, serial_num as u64);
@@ -168,13 +168,15 @@ pub fn get_metadata(path: &std::path::Path, meta: &Metadata, extended: bool) -> 
         opts.custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
         if let Ok(file) = opts.open(path) {
             let handle = file.as_raw_handle() as _;
-            unsafe {
-                let mut info = std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>();
-                if GetFileInformationByHandle(handle, &mut info) != 0 {
-                    dev = info.dwVolumeSerialNumber as u64;
-                    ino = ((info.nFileIndexHigh as u64) << 32) | (info.nFileIndexLow as u64);
-                    nlink = info.nNumberOfLinks;
-                }
+            let mut info = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
+            // SAFETY: file is a valid open Windows file handle and info points to valid uninitialized memory.
+            let ok = unsafe { GetFileInformationByHandle(handle, info.as_mut_ptr()) };
+            if ok != 0 {
+                // SAFETY: GetFileInformationByHandle succeeded, so info is fully initialized.
+                let info = unsafe { info.assume_init() };
+                dev = info.dwVolumeSerialNumber as u64;
+                ino = ((info.nFileIndexHigh as u64) << 32) | (info.nFileIndexLow as u64);
+                nlink = info.nNumberOfLinks;
             }
         }
     }

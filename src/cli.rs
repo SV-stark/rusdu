@@ -14,6 +14,12 @@ pub enum CliError {
 
     #[error("Unknown option: {0:?}")]
     UnknownOption(String),
+
+    #[error("Help requested")]
+    HelpRequested,
+
+    #[error("Version requested")]
+    VersionRequested,
 }
 
 #[derive(Debug, Clone)]
@@ -150,7 +156,18 @@ impl Default for Args {
 impl Args {
     pub fn parse() -> Result<Self, CliError> {
         let args = std::env::args_os();
-        Self::try_parse_from(args)
+        match Self::try_parse_from(args) {
+            Ok(a) => Ok(a),
+            Err(CliError::HelpRequested) => {
+                print_help();
+                std::process::exit(0);
+            }
+            Err(CliError::VersionRequested) => {
+                println!("rusdu {}", env!("CARGO_PKG_VERSION"));
+                std::process::exit(0);
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub fn try_parse_from<I, S>(iter: I) -> Result<Self, CliError>
@@ -164,12 +181,10 @@ impl Args {
         while let Some(arg) = parser.next()? {
             match arg {
                 Arg::Short('h') | Arg::Long("help") => {
-                    print_help();
-                    std::process::exit(0);
+                    return Err(CliError::HelpRequested);
                 }
                 Arg::Short('v') | Arg::Short('V') | Arg::Long("version") => {
-                    println!("rusdu {}", env!("CARGO_PKG_VERSION"));
-                    std::process::exit(0);
+                    return Err(CliError::VersionRequested);
                 }
                 Arg::Short('f') | Arg::Long("import") => {
                     args.import_file = Some(parser.value()?.into());

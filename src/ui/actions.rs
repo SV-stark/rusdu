@@ -39,10 +39,10 @@ pub fn load_custom_actions() -> HashMap<char, String> {
     actions
 }
 
-struct TuiSuspender;
+pub struct TuiSuspender;
 
 impl TuiSuspender {
-    fn new() -> Result<Self> {
+    pub fn new() -> Result<Self> {
         crossterm::terminal::disable_raw_mode()?;
         crossterm::execute!(
             std::io::stdout(),

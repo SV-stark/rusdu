@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-09-12
+
+### Fixed & Hardened
+- **Unsafe Code Soundness & FFI Safety**:
+  - Replaced `std::mem::zeroed` with `std::mem::MaybeUninit` across Win32 (`BY_HANDLE_FILE_INFORMATION`), Linux (`libc::statfs`, `libc::statvfs`), and macOS FFI calls to guarantee type validity invariants.
+  - Added explicit `// SAFETY:` rationale documenting all pointer, buffer size, and alignment preconditions across all `unsafe` blocks.
+  - Replaced heap-allocated strings and vectors in Windows drive queries with stack-allocated UTF-16 array buffers (`[u16; 4]`).
+- **Memory & Allocation Optimizations**:
+  - Zero-allocation directory stat recalculation: Eliminated `node.children.clone()` across all directories in `src/tree/stats.rs`, indexing directly into arena child buffers.
+  - Zero-copy JSON export: Switched `JsonFile` and `Metadata` serialization to borrow string slices (`&'a str`), removing string allocations per file/directory.
+  - Zero-copy CBOR binary export: Updated `CborValue` to borrow string references (`&'a str`), and eliminated `node.children.clone()` during depth-first serialization.
+  - Non-cloning binary import: Implemented `Default` for `TreeNode` and used `std::mem::take` to assemble the tree arena directly from decoded nodes without cloning.
+  - Avoided transient `format!` allocations in kernel filesystem prefix checks (`strip_prefix`) and UI breadcrumb path formatting (`get_node_path`).
+  - Switched config line parser token pushes to `std::mem::take(&mut word)`.
+- **Numeric & Overflow Safety**:
+  - Fixed signed integer overflow panic on `i64::MIN` in CBOR negative integer encoding by computing `(!val) as u64`.
+  - Added boundary checks on positive and negative CBOR integer decoding against `i64::MAX` and `i64::MIN`.
+- **API Purity & Terminal RAII Safety**:
+  - Pure CLI parsing: `Args::try_parse_from` now cleanly returns `CliError::HelpRequested` and `CliError::VersionRequested` without abruptly calling `std::process::exit(0)`.
+  - Unified RAII `TuiSuspender` guard: Integrated `TuiSuspender` in `src/shell.rs` to guarantee terminal raw mode, alternate screen, and mouse capture restoration even on shell errors or panics.
+- **Dependency Updates**:
+  - Updated 28 crates to latest compatible releases (Rust 1.85 / 2024 edition).
+
 ## [0.4.0] - 2026-08-23
 
 ### Fixed & Spec Parity

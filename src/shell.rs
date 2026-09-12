@@ -23,29 +23,14 @@ pub fn spawn_shell(dir_path: &Path, read_only: bool) -> Result<()> {
         .unwrap_or(0)
         + 1;
 
-    // Suspend crossterm TUI raw mode before launching shell
-    crossterm::terminal::disable_raw_mode()?;
-    crossterm::execute!(
-        std::io::stdout(),
-        crossterm::terminal::LeaveAlternateScreen,
-        crossterm::cursor::Show,
-        crossterm::event::DisableMouseCapture
-    )?;
+    // Suspend crossterm TUI raw mode before launching shell (RAII guard restores on drop)
+    let _suspender = crate::ui::actions::TuiSuspender::new()?;
 
     let mut cmd = Command::new(&shell_exe);
     cmd.current_dir(dir_path)
         .env("NCDU_LEVEL", ncdu_level.to_string());
 
     let status = cmd.status();
-
-    // Re-enable TUI raw mode
-    crossterm::terminal::enable_raw_mode()?;
-    crossterm::execute!(
-        std::io::stdout(),
-        crossterm::terminal::EnterAlternateScreen,
-        crossterm::cursor::Hide,
-        crossterm::event::EnableMouseCapture
-    )?;
 
     match status {
         Ok(s) => {

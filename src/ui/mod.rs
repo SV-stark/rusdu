@@ -1,4 +1,4 @@
-mod actions;
+pub mod actions;
 pub mod browser;
 pub mod drives;
 mod theme;
@@ -990,7 +990,7 @@ pub fn get_node_path(arena: &TreeArena, node_id: NodeId) -> std::path::PathBuf {
 
     loop {
         let node = arena.get(curr);
-        path_components.push(node.name.to_string());
+        path_components.push(&*node.name);
         if let Some(p) = node.parent {
             curr = p;
         } else {

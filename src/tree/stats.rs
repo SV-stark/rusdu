@@ -71,11 +71,11 @@ pub fn recalculate_stats(arena: &mut TreeArena) {
             // It's a directory. Its children stats are already calculated!
             let mut stats = AggregateStats::default();
 
-            let node = arena.get(node_id);
-            let children = node.children.clone();
+            let num_children = arena.get(node_id).children.len();
             let mut has_sub_error = false;
 
-            for child_id in children {
+            for i in 0..num_children {
+                let child_id = arena.get(node_id).children[i];
                 let child_node = arena.get(child_id);
                 if child_node.flags.contains(EntryFlags::READ_ERROR)
                     || child_node.flags.contains(EntryFlags::SUB_ERROR)

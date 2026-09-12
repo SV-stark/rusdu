@@ -238,7 +238,7 @@ pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
         .ok_or_else(|| anyhow!("Root node not found at offset {}", root_offset))?;
 
     // Initialize arena with the root node
-    let mut arena = TreeArena::new(node_list[root_node_idx].clone());
+    let mut arena = TreeArena::new(std::mem::take(&mut node_list[root_node_idx]));
 
     let mut children_lists = vec![Vec::new(); node_list.len()];
 
@@ -272,7 +272,7 @@ pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
         &mut arena,
         root_id,
         root_node_idx,
-        &node_list,
+        &mut node_list,
         &children_lists,
     );
 
@@ -286,13 +286,13 @@ fn build_arena_recursive(
     arena: &mut TreeArena,
     parent_id: NodeId,
     parent_idx: usize,
-    node_list: &[TreeNode],
+    node_list: &mut [TreeNode],
     children_lists: &[Vec<usize>],
 ) {
     let children_indices = &children_lists[parent_idx];
 
     for &child_idx in children_indices {
-        let child_node = node_list[child_idx].clone();
+        let child_node = std::mem::take(&mut node_list[child_idx]);
         let child_id = arena.add_child(parent_id, child_node);
         build_arena_recursive(arena, child_id, child_idx, node_list, children_lists);
     }
@@ -359,10 +359,16 @@ impl<'a> CborCursor<'a> {
         match major {
             0 => {
                 let u = self.read_uint_val(info)?;
+                if u > (i64::MAX as u64) {
+                    return Err(anyhow!("CBOR positive integer exceeds i64::MAX"));
+                }
                 Ok(u as i64)
             }
             1 => {
                 let u = self.read_uint_val(info)?;
+                if u > (i64::MAX as u64) {
+                    return Err(anyhow!("CBOR negative integer exceeds i64::MIN"));
+                }
                 Ok(-1 - (u as i64))
             }
             _ => Err(anyhow!("Expected CBOR integer, got major type {}", major)),

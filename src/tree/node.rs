@@ -128,3 +128,21 @@ impl TreeNode {
         }
     }
 }
+
+impl Default for TreeNode {
+    fn default() -> Self {
+        Self {
+            name: Box::from(""),
+            asize: 0,
+            dsize: 0,
+            dev: 0,
+            ino: 0,
+            nlink: 1,
+            flags: EntryFlags::empty(),
+            extended: None,
+            children: Vec::new(),
+            parent: None,
+            stats: None,
+        }
+    }
+}
