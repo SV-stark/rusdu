@@ -282,6 +282,10 @@ pub fn import_bin(file_bytes: &[u8]) -> Result<TreeArena> {
     Ok(arena)
 }
 
+/// Attach decoded nodes to the arena, iteratively.
+///
+/// This recursed once per directory level, so importing an archive of a deeply
+/// nested tree could overflow the stack.
 fn build_arena_recursive(
     arena: &mut TreeArena,
     parent_id: NodeId,
@@ -289,12 +293,14 @@ fn build_arena_recursive(
     node_list: &mut [TreeNode],
     children_lists: &[Vec<usize>],
 ) {
-    let children_indices = &children_lists[parent_idx];
+    let mut stack: Vec<(NodeId, usize)> = vec![(parent_id, parent_idx)];
 
-    for &child_idx in children_indices {
-        let child_node = std::mem::take(&mut node_list[child_idx]);
-        let child_id = arena.add_child(parent_id, child_node);
-        build_arena_recursive(arena, child_id, child_idx, node_list, children_lists);
+    while let Some((parent_id, parent_idx)) = stack.pop() {
+        for &child_idx in &children_lists[parent_idx] {
+            let child_node = std::mem::take(&mut node_list[child_idx]);
+            let child_id = arena.add_child(parent_id, child_node);
+            stack.push((child_id, child_idx));
+        }
     }
 }
 

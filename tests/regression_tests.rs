@@ -774,6 +774,96 @@ fn test_scan_thread_count_is_clamped() {
 }
 
 #[test]
+fn test_deep_tree_scan_does_not_overflow_the_stack() {
+    // Regression: the single-threaded walker recursed once per directory level.
+    // Windows gives the main thread 1 MiB, so a tree ~1400 levels deep died with
+    // STATUS_STACK_OVERFLOW while `-t 4` (which does not recurse) succeeded.
+    let tmp = tempfile::tempdir().unwrap();
+    let mut cur = tmp.path().to_path_buf();
+    for _ in 0..1500 {
+        cur = cur.join("d");
+        std::fs::create_dir(&cur).unwrap();
+    }
+    std::fs::write(cur.join("leaf.txt"), b"x").unwrap();
+
+    for threads in [1usize, 4] {
+        let opts = rusdu::scan::ScanOptions {
+            threads,
+            ..Default::default()
+        };
+        let arena =
+            rusdu::scan::scan_directory(tmp.path(), opts, rusdu::scan::ProgressMode::Silent)
+                .unwrap_or_else(|e| panic!("threads={threads}: deep scan failed: {e}"));
+
+        // Walk down to the leaf and confirm it is present.
+        let mut node = arena.get(arena.root);
+        for _ in 0..1500 {
+            node = arena.get(node.children[0]);
+        }
+        assert!(
+            node.children
+                .iter()
+                .any(|&id| arena.get(id).name.as_ref() == "leaf.txt"),
+            "threads={threads}: leaf missing after deep scan"
+        );
+    }
+}
+
+#[test]
+fn test_deep_json_roundtrip_is_reimportable() {
+    // Regression: the ncdu JSON format nests one array per directory level and
+    // serde_json's default 128-level recursion limit meant rusdu could not
+    // re-import its own export for a tree deeper than ~120 levels.
+    let root_node = TreeNode::new_dir("root".to_string(), 1, 10, EntryFlags::empty(), None);
+    let mut arena = TreeArena::new(root_node);
+    let mut prev = arena.root;
+    for i in 1..=400usize {
+        let n = TreeNode::new_dir(
+            format!("d{i}"),
+            1,
+            100 + i as u64,
+            EntryFlags::empty(),
+            None,
+        );
+        // Chain each directory under the previous one to build the depth.
+        prev = arena.add_child(prev, n);
+    }
+    rusdu::tree::stats::recalculate_stats(&mut arena);
+
+    let json_bytes = json_write::export_json(&arena).expect("export must succeed");
+    let reimported = json_read::import_json(&json_bytes).expect("deep JSON must re-import");
+
+    let mut node = reimported.get(reimported.root);
+    for _ in 0..400 {
+        node = reimported.get(node.children[0]);
+    }
+    assert_eq!(node.name.as_ref(), "d400");
+}
+
+#[test]
+fn test_size_arithmetic_saturates_instead_of_wrapping() {
+    // Regression: `blocks * 512` and the cluster round-up were unchecked, so an
+    // absurd size wrapped negative and was then clamped to 0 by `new_file`.
+    assert_eq!(
+        i64::MAX.saturating_mul(512),
+        i64::MAX,
+        "saturating_mul must not wrap"
+    );
+    let cluster = 4096u64;
+    let huge = rusdu::tree::MAX_SIZE_LIMIT as u64;
+    let rounded = huge.div_ceil(cluster).saturating_mul(cluster);
+    assert!(
+        rounded >= huge,
+        "cluster rounding must not shrink the reported size"
+    );
+    assert_eq!(
+        rounded.min(rusdu::tree::MAX_SIZE_LIMIT as u64) as i64,
+        rusdu::tree::MAX_SIZE_LIMIT,
+        "rounding must clamp to MAX_SIZE_LIMIT rather than wrap"
+    );
+}
+
+#[test]
 fn test_stats_recalculation_skips_excluded() {
     let root = TreeNode::new_dir("root".to_string(), 1, 10, EntryFlags::empty(), None);
     let mut arena = TreeArena::new(root);

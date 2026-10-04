@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-10-04
+
+### Fixed — Stack Overflows on Deep Trees
+Three independent recursions keyed on directory nesting depth each terminated the process or rejected valid input. All are now iterative or run on a large-stack thread.
+
+- **Single-threaded scan crashed on deep trees (`-t 1`)**: the walker recursed once per directory level. Windows gives the main thread a 1 MiB stack, so a tree ~1400 levels deep died with `STATUS_STACK_OVERFLOW` (`0xC00000FD`), while `-t 4` succeeded on the same tree because the parallel backend does not recurse. Verified before the fix: exit code `-1073741571`. Replaced with an explicit work stack that preserves read order. Added `test_deep_tree_scan_does_not_overflow_the_stack`.
+- **Deep JSON exports could not be re-imported**: the ncdu format nests one array per directory level and `serde_json`'s default 128-level recursion limit rejected it. Verified before the fix: `recursion limit exceeded` on a 200-level tree, and rusdu could not read back its own `-o` output. Enabled serde_json's `unbounded_depth` and moved both the parse and `parse_children_recursive` off the main thread onto a 64 MiB stack; `parse_children_recursive` is now iterative. Added `test_deep_json_roundtrip_is_reimportable`.
+- **Binary import recursed per level**: `build_arena_recursive` could overflow on a deeply nested archive; now iterative.
+- **JSON export recursed per level**: `write_node` now runs on a large-stack thread.
+
+### Fixed — Windows Path & Metadata Handling
+- **UNC paths were mangled into an invalid form**: `\\server\share` was prefixed directly, producing `\\?\\server\share`, which every Win32 call rejects with `ERROR_INVALID_NAME`. Verified before the fix via `GetFileAttributesW` (`err=123`); now correctly emits `\\?\UNC\server\share` and scans successfully.
+- **`.`/`..` components broke absolute paths**: the `\\?\` prefix disables Win32 path normalization, so any path containing them was unusable. Verified before the fix: scanning `...\a\b\..` failed with `os error 123`. Components are now resolved lexically before prefixing.
+- **Pre-1970 mtimes collapsed to 1970**: `duration_since(UNIX_EPOCH).ok()` discarded every timestamp before the epoch, and the `max()` in `recalculate_stats` then dropped it entirely. Now negates the error duration. Verified: a file stamped 1960-06-15 reports `-301239570` instead of `0`.
+- **Unchecked size arithmetic wrapped to zero**: `blocks() * 512` and the cluster round-up multiplication were unchecked, so an absurd size wrapped negative and was silently clamped to `0` by `TreeNode::new_file`. Both now saturate and clamp to `MAX_SIZE_LIMIT`. Added `test_size_arithmetic_saturates_instead_of_wrapping`.
+
+### Changed
+- **Dependency update**: 34 crates moved to their latest Rust 1.85-compatible versions (`cc` 1.4.5→1.6.0, `libc` 0.2.189→0.2.190, `mio` 1.2.3→1.2.4, `thiserror` 2.0.20→2.0.21, `zerocopy` 0.8.57→0.8.59, `pest` 2.9.1→2.9.2, and others); `getrandom` 0.2 was dropped and `nix` 0.30.1 added transitively.
+- **`serde_json` now enables `unbounded_depth`**, required for the deep-import fix above.
+
+### Testing
+- Three new regression tests covering the deep-scan overflow, the deep JSON roundtrip, and size-arithmetic saturation.
+- Full suite green (42 tests); `cargo fmt --check` and `cargo clippy --all-targets -D warnings` clean.
+- Verified end-to-end on a 1400-level tree: `-t 1` and `-t 4` now produce byte-identical JSON, and both JSON and binary archives roundtrip at full depth.
+
+### Known limitations (not addressed here)
+- On Windows, `ino`/`nlink` are still only populated when `-e` is passed, so hard links are not deduplicated without it.
+- Windows `dsize` is still derived from logical size and does not account for sparse or NTFS-compressed allocation.
+- Deeply nested JSON export/import now copies the payload once to move work to the worker thread; very large exports pay one extra allocation.
+
 ## [0.4.3] - 2026-10-04
 
 ### Fixed — Scan Correctness

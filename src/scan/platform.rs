@@ -15,9 +15,13 @@ pub struct PlatformMetadata {
 pub fn get_metadata(_path: &std::path::Path, meta: &Metadata, extended: bool) -> PlatformMetadata {
     use std::os::unix::fs::MetadataExt;
 
-    let asize = meta.len() as i64;
-    // On Unix, allocated size is blocks * 512
-    let dsize = meta.blocks() as i64 * 512;
+    let asize = i64::try_from(meta.len()).unwrap_or(crate::tree::MAX_SIZE_LIMIT);
+    // On Unix, allocated size is blocks * 512. Saturate rather than overflow:
+    // `blocks() * 512` exceeds i64 only beyond ~8 EiB, but wrapping negative
+    // would be silently clamped to 0 by `TreeNode::new_file`.
+    let dsize = (meta.blocks() as i64)
+        .saturating_mul(512)
+        .clamp(0, crate::tree::MAX_SIZE_LIMIT);
     let dev = meta.dev();
     let ino = meta.ino();
     let nlink = meta.nlink() as u32;
@@ -43,16 +47,68 @@ pub fn get_metadata(_path: &std::path::Path, meta: &Metadata, extended: bool) ->
     }
 }
 
+/// Resolve `.` and `..` components in an absolute Windows path.
+///
+/// Works on the already-backslash-normalized string rather than via
+/// `std::path::Component`, so no filesystem access is attempted.
 #[cfg(windows)]
-pub fn fix_path(path: &std::path::Path) -> std::path::PathBuf {
-    if path.is_absolute() {
-        let path_str = path.to_string_lossy();
-        if !path_str.starts_with(r"\\?\") && !path_str.starts_with(r"\\.\") {
-            let clean = path_str.replace('/', "\\");
-            return std::path::PathBuf::from(format!(r"\\?\{}", clean));
+fn lexical_normalize(path: &str) -> String {
+    // Preserve a leading `\\server\share` or `\\?\` prefix verbatim.
+    let (prefix, rest) = if let Some(r) = path.strip_prefix(r"\\?\") {
+        (r"\\?\", r)
+    } else if let Some(r) = path.strip_prefix("\\\\") {
+        (r"\\", r)
+    } else if let Some(r) = path.strip_prefix(r"\\.\") {
+        (r"\\.\", r)
+    } else {
+        ("", path)
+    };
+
+    let mut out: Vec<&str> = Vec::new();
+    for part in rest.split('\\') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                // Never pop past a root or share name.
+                if out.len() > 1 || (out.len() == 1 && !has_root_marker(out[0])) {
+                    out.pop();
+                }
+            }
+            other => out.push(other),
         }
     }
-    path.to_path_buf()
+    format!("{}\\{}", prefix, out.join("\\"))
+}
+
+/// True when a single path component names a drive or share root, which must
+/// never be popped by a following `..`.
+#[cfg(windows)]
+fn has_root_marker(component: &str) -> bool {
+    component.ends_with(':') || component == "." || component == ".."
+}
+
+#[cfg(windows)]
+pub fn fix_path(path: &std::path::Path) -> std::path::PathBuf {
+    if !path.is_absolute() {
+        return path.to_path_buf();
+    }
+    let path_str = path.to_string_lossy();
+    if path_str.starts_with(r"\\?\") || path_str.starts_with(r"\\.\") {
+        return path.to_path_buf();
+    }
+    let clean = path_str.replace('/', "\\");
+    // A UNC path must keep its `UNC` marker under the `\\?\` prefix:
+    // `\\server\share` becomes `\\?\UNC\server\share`. Prefixing it directly
+    // yields `\\?\\server\share`, which every Win32 call rejects with
+    // ERROR_INVALID_NAME.
+    if let Some(unc) = clean.strip_prefix(r"\\") {
+        if !unc.is_empty() {
+            return std::path::PathBuf::from(format!(r"\\?\UNC\{}", unc));
+        }
+    }
+    // The `\\?\` prefix disables Win32 `.`/`..` normalization, so those
+    // components have to be resolved lexically or the path becomes unusable.
+    std::path::PathBuf::from(format!(r"\\?\{}", lexical_normalize(&clean)))
 }
 
 #[cfg(not(windows))]
@@ -150,9 +206,14 @@ pub fn get_metadata(path: &std::path::Path, meta: &Metadata, extended: bool) -> 
     };
 
     let (cluster_size, root_dev) = get_drive_cluster_size_and_dev(path);
-    let asize = meta.len() as i64;
+    let asize = i64::try_from(meta.len()).unwrap_or(crate::tree::MAX_SIZE_LIMIT);
+    // Round up to a whole cluster, saturating at the representable maximum so
+    // an enormous size cannot wrap negative and be clamped to 0 downstream.
     let dsize = if cluster_size > 0 {
-        ((asize as u64).div_ceil(cluster_size) * cluster_size) as i64
+        ((asize as u64)
+            .div_ceil(cluster_size)
+            .saturating_mul(cluster_size)
+            .min(crate::tree::MAX_SIZE_LIMIT as u64)) as i64
     } else {
         asize
     };
@@ -182,11 +243,16 @@ pub fn get_metadata(path: &std::path::Path, meta: &Metadata, extended: bool) -> 
     }
 
     let extended_info = if extended {
+        // `duration_since(..).ok()` maps every pre-1970 timestamp to 0, so a
+        // file from 1960 was displayed as 1970-01-01 and was then discarded by
+        // the `max()` in `recalculate_stats`. Negate the error duration instead.
         let mtime = meta
             .modified()
             .ok()
-            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64)
+            .map(|t| match t.duration_since(UNIX_EPOCH) {
+                Ok(d) => d.as_secs() as i64,
+                Err(e) => -(e.duration().as_secs() as i64),
+            })
             .unwrap_or(0);
 
         Some(ExtendedInfo {

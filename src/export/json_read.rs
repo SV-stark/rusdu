@@ -68,7 +68,28 @@ fn apply_excluded_flag(val: &Option<Value>, flags: &mut EntryFlags) {
 }
 
 pub fn import_json(json_bytes: &[u8]) -> Result<TreeArena> {
-    let root_val: Value = serde_json::from_slice(json_bytes)?;
+    // The ncdu format is a nested array whose depth equals the directory
+    // nesting depth, and both serde_json's parser and `parse_children_recursive`
+    // recurse per level. The default 128-level serde_json limit rejected our
+    // own export for trees deeper than ~120 levels, so parse on a thread with a
+    // large stack and with the recursion limit disabled (see the
+    // `unbounded_depth` feature in Cargo.toml).
+    // Own the buffer so the closure satisfies `'static`; JSON imports can be
+    // large, but the copy is a single allocation.
+    let owned = json_bytes.to_vec();
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(move || import_json_inner(&owned))
+        .map_err(|e| anyhow!("failed to spawn JSON import thread: {}", e))?
+        .join()
+        .map_err(|_| anyhow!("JSON import panicked"))?
+}
+
+fn import_json_inner(json_bytes: &[u8]) -> Result<TreeArena> {
+    let mut deser = serde_json::Deserializer::from_slice(json_bytes);
+    deser.disable_recursion_limit();
+    let root_val = Value::deserialize(&mut deser)?;
+    deser.end()?;
 
     // Expected shape: [majorver, minorver, metadata, root_directory]
     let root_array = root_val
@@ -99,19 +120,30 @@ pub fn import_json(json_bytes: &[u8]) -> Result<TreeArena> {
     Ok(arena)
 }
 
+/// Attach `children` under `parent_id`, iteratively.
+///
+/// This used to recurse once per directory level, which is a second overflow
+/// risk alongside serde_json's parser on deeply nested input.
 fn parse_children_recursive(
     arena: &mut TreeArena,
     parent_id: NodeId,
     children: &[Value],
 ) -> Result<()> {
-    for val in children {
-        if val.is_array() {
-            let (dir_node, sub_children) = parse_dir_node(val)?;
-            let child_id = arena.add_child(parent_id, dir_node);
-            parse_children_recursive(arena, child_id, sub_children)?;
-        } else {
-            let file_node = parse_file_node(val)?;
-            arena.add_child(parent_id, file_node);
+    // (arena parent id, slice of this level's children still to process)
+    let mut stack: Vec<(NodeId, &[Value])> = vec![(parent_id, children)];
+
+    while let Some((parent_id, level)) = stack.pop() {
+        for val in level {
+            if val.is_array() {
+                let (dir_node, sub_children) = parse_dir_node(val)?;
+                let child_id = arena.add_child(parent_id, dir_node);
+                if !sub_children.is_empty() {
+                    stack.push((child_id, sub_children));
+                }
+            } else {
+                let file_node = parse_file_node(val)?;
+                arena.add_child(parent_id, file_node);
+            }
         }
     }
     Ok(())

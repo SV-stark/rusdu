@@ -3,5 +3,5 @@ mod node;
 pub mod stats;
 
 pub use arena::TreeArena;
-pub use node::{EntryFlags, ExtendedInfo, NodeId, TreeNode};
+pub use node::{EntryFlags, ExtendedInfo, MAX_SIZE_LIMIT, NodeId, TreeNode};
 pub use stats::AggregateStats;

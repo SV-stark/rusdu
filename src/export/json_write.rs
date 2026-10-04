@@ -1,5 +1,6 @@
 use crate::tree::{EntryFlags, NodeId, TreeArena};
 use anyhow::Result;
+use anyhow::anyhow;
 use serde::Serialize;
 use std::io::Write;
 
@@ -44,6 +45,18 @@ struct Metadata<'a> {
 }
 
 pub fn export_json(arena: &TreeArena) -> Result<Vec<u8>> {
+    // `write_node` walks the tree per directory level, so deep trees need more
+    // stack than the default main-thread stack provides.
+    let owned = arena.clone();
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(move || export_json_inner(&owned))
+        .map_err(|e| anyhow!("failed to spawn JSON export thread: {}", e))?
+        .join()
+        .map_err(|_| anyhow!("JSON export panicked"))?
+}
+
+fn export_json_inner(arena: &TreeArena) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     let metadata = Metadata {
         progname: "rusdu",
