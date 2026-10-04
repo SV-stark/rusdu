@@ -24,6 +24,11 @@ pub fn scan_single_threaded(
     }
 
     let root_meta = fs::symlink_metadata(root_path)?;
+    // Scanning a plain file used to return a bogus one-node tree flagged as a
+    // read error, and exit 0.
+    if !root_meta.is_dir() {
+        anyhow::bail!("{} is not a directory", root_path.display());
+    }
     let root_plat = get_metadata(root_path, &root_meta, opts.extended);
 
     let root_node = TreeNode::new_dir(
@@ -45,6 +50,7 @@ pub fn scan_single_threaded(
         &mut arena,
         root_id,
         root_path,
+        root_path,
         &opts,
         &filter,
         progress_mode,
@@ -58,13 +64,21 @@ pub fn scan_single_threaded(
         eprintln!("\nScan complete. Scanned {} items.", stats.items_scanned);
     }
 
+    // `aborted` was set but never read, so an interrupted scan returned a
+    // truncated tree that looked complete.
+    if stats.aborted {
+        anyhow::bail!("Scan aborted by user");
+    }
+
     Ok(arena)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn walk_dir_recursive(
     arena: &mut TreeArena,
     parent_id: NodeId,
     dir_path: &Path,
+    root_path: &Path,
     opts: &ScanOptions,
     filter: &Filter,
     progress_mode: ProgressMode,
@@ -135,7 +149,7 @@ fn walk_dir_recursive(
             break;
         }
 
-        if filter.is_glob_match(&path) {
+        if filter.is_glob_match_relative(&path, Some(root_path)) {
             let child = if is_dir_entry {
                 TreeNode::new_dir(file_name, parent_dev, 0, EntryFlags::EXCLUDED, None)
             } else {
@@ -218,8 +232,17 @@ fn walk_dir_recursive(
             );
             let child_id = arena.add_child(parent_id, child_node);
 
-            if walk_dir_recursive(arena, child_id, &path, opts, filter, progress_mode, stats)
-                .is_err()
+            if walk_dir_recursive(
+                arena,
+                child_id,
+                &path,
+                root_path,
+                opts,
+                filter,
+                progress_mode,
+                stats,
+            )
+            .is_err()
             {
                 arena.get_mut(child_id).flags.insert(EntryFlags::READ_ERROR);
             }
@@ -246,7 +269,9 @@ fn walk_dir_recursive(
         }
     }
 
-    if arena.get(parent_id).children.is_empty() {
+    // Guard on `aborted`: an interrupted scan leaves this directory partially
+    // populated, and marking it EMPTY_DIR would claim it is legitimately empty.
+    if !stats.aborted && arena.get(parent_id).children.is_empty() {
         arena.get_mut(parent_id).flags.insert(EntryFlags::EMPTY_DIR);
     }
 

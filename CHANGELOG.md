@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-10-04
+
+### Fixed — Scan Correctness
+- **Hidden files silently dropped in parallel mode (`-t N`)**: `jwalk`'s `WalkDirGeneric` defaults to `skip_hidden: true`, so every dotfile and dot-directory was omitted while the single-threaded walker included them. The two backends reported wildly different totals for the same directory. Verified before the fix: a scan with `-t 4` lost `.dotfile` and `.hidden_dir/secret.bin`; after the fix both backends agree. Added `test_scan_hidden_files_present_with_multiple_threads`.
+- **Symlinked directories duplicated the whole subtree under `-L`**: `entry.file_type` is the type of the *target* once `follow_links` is set, so `is_symlink()` was always `false`, a symlinked directory was registered as a real directory and recursed into. Verified before the fix: a junction was expanded 63 levels deep; the single-threaded walker never recurses into a followed symlink. Now uses `path_is_symlink()`, matching ncdu's "follow links to files only, never directories" behaviour.
+- **Unreadable directories reported as empty**: `parallel.rs` discarded every walk error with `filter_map(..ok())`, so a directory the process cannot read was created as a normal directory and then flagged `EMPTY_DIR` — silently under-reporting totals with no error indicator. Walk errors are now collected, the parent is marked `READ_ERROR`, and a count is reported to the user.
+- **Root-relative exclude patterns never matched**: globset anchors patterns, so only base-name patterns worked and a multi-component pattern like `src/main.rs` matched nothing — meaning `-X` pattern files (which conventionally hold root-relative paths) largely did nothing. Patterns are now also matched against the path relative to the scan root, with forward-slash normalisation so one pattern file works on Windows. Added `test_exclude_pattern_matches_path_relative_to_root`.
+- **Invalid globs silently discarded**: an unparsable `--exclude` pattern was dropped with `if let Ok(..)`, so a typo excluded nothing; a failed `GlobSetBuilder::build()` fell back to an *empty* set, discarding every exclusion for the whole run. Both now report an error. Bad lines in an `-X` file are reported and skipped instead of aborting the entire scan on a single non-UTF-8 byte. Added `test_invalid_exclude_pattern_is_reported`.
+- **Scanning a plain file exited 0 with a bogus tree**: both backends accepted a regular file as a scan root and produced a one-node tree flagged as a read error. Now fails with `is not a directory`. Added `test_scan_rejects_non_directory_root`.
+- **Scan abort was non-functional**: `ScanStats::aborted` was set but never read, so an interrupted scan returned a truncated tree that looked complete — and the interrupted directory was flagged `EMPTY_DIR`. The parallel backend also never checked the flag at all. Both backends now check the abort flag, propagate it as an error, and no longer mark partially-scanned directories as empty.
+- **Fullscreen `q` abort could never work on Unix**: raw mode was only enabled *after* the scan, so the line discipline buffered `q` until a newline and `Ctrl+C` raised `SIGINT`. A `ScanRawMode` guard now puts the terminal in raw mode for the duration of a fullscreen scan and restores it afterwards (only when stdin/stderr are real terminals, so piped input is unaffected). Also stopped hiding the cursor during progress without ever showing it again.
+- **`-t` was unvalidated**: `-t 0` silently fell back to the single-threaded walker and an arbitrarily large value was passed straight to rayon. Thread count is now clamped to `1..=available_parallelism()`. Added `test_scan_thread_count_is_clamped`.
+
+### Fixed — TUI
+- **`--confirm-quit` made the application unkillable**: the quit dialog returned "exit" through a boolean whose only `false` value the caller read as "key not handled", so confirming with `y`/Enter left the dialog open forever and `q` was a dead key for the rest of the session. Quit is now signalled through explicit state.
+- **A dead refresh worker bricked the TUI**: `try_recv()` only handled `Ok(_)`, never `Disconnected`. If the refresh thread panicked or returned early, the "Refreshing..." modal was drawn every frame and every key was swallowed with no way out. The terminal condition is now handled and the channel cleared.
+- **Terminal left in raw mode on error**: terminal setup had no RAII guard, so any `?` early return from `draw`/`poll`/`read` or any panic in a handler left the user's shell in raw mode on the alternate screen with a hidden cursor. Added a `TerminalRestore` guard.
+- **Mouse navigation broke the filesystem watcher**: navigating into a directory by double-click never re-armed the watcher, unlike the keyboard path, leaving it pointed at the parent so change detection and refresh targeted the wrong path.
+- **Clicks outside the file list moved the cursor**: hit-testing used the raw screen row with no upper bound and no column check, so clicking the header/footer or anywhere in the preview pane jumped the selection to an index that was never displayed. Now bounded to the list viewport.
+- **`--show-*` flags were parsed and then ignored**: `show_hidden`, `hide_itemcount`, `hide_mtime`, `show_graph`, `show_percent` and `no_confirm_quit` had no read site, so e.g. `rusdu --no-confirm-quit` still prompted and `--show-itemcount` did nothing. Both halves of each flag pair are now honoured.
+
+### Fixed — Display & Aggregation
+- **Extension analytics double-counted**: excluded entries and hard-link duplicates were summed into per-extension totals, so the percentages disagreed with the footer total. A negative `dsize` was widened to `~1.8e19`, collapsing every other percentage to `0.0%`; the cast is now clamped.
+- **Directory mtime column showed the wrong timestamp**: it used the directory's own mtime rather than the newest mtime in the subtree (which is what the `mtime` sort key uses), so the two disagreed.
+- **Percentages could exceed 100%**: the denominator skips excluded children while excluded entries are listed when hidden files are shown, and the value was not clamped, which also widened the column and shifted every row after it.
+- **`u32` counter overflow in stats**: item/directory/file counts used `+=` while the size totals used saturating arithmetic, overflowing on trees with more than `u32::MAX` items.
+
+### Testing
+- Six new regression tests covering the hidden-file and thread-count bugs, non-directory roots, root-relative exclude patterns, invalid glob reporting, and scan cancellation.
+- Full suite green (39 tests); `cargo fmt --check` and `cargo clippy --all-targets -D warnings` clean.
+
 ## [0.4.2] - 2026-09-12
 
 ### Fixed & Hardened

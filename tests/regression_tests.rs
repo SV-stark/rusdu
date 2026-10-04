@@ -641,6 +641,139 @@ fn test_golden_ncdu_binary_spec_vector() {
 }
 
 #[test]
+fn test_scan_hidden_files_present_with_multiple_threads() {
+    // Regression: jwalk defaults `skip_hidden` to true, so `-t N` silently
+    // dropped every dotfile while `-t 1` (the std walker) kept them.
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir(tmp.path().join(".hidden_dir")).unwrap();
+    std::fs::write(tmp.path().join(".dotfile"), b"x").unwrap();
+    std::fs::write(tmp.path().join(".hidden_dir/secret.bin"), b"x").unwrap();
+    std::fs::write(tmp.path().join("visible.txt"), b"x").unwrap();
+
+    let names_of = |threads: usize| -> Vec<String> {
+        let opts = rusdu::scan::ScanOptions {
+            threads,
+            ..Default::default()
+        };
+        let arena =
+            rusdu::scan::scan_directory(tmp.path(), opts, rusdu::scan::ProgressMode::Silent)
+                .unwrap();
+        let mut names: Vec<String> = arena
+            .get(arena.root)
+            .children
+            .iter()
+            .map(|&id| arena.get(id).name.to_string())
+            .collect();
+        names.sort();
+        names
+    };
+
+    let single = names_of(1);
+    let multi = names_of(4);
+    assert!(
+        single.contains(&".dotfile".to_string()),
+        "single-threaded scan must see dotfiles, got {single:?}"
+    );
+    assert_eq!(
+        single, multi,
+        "single- and multi-threaded scans must agree on hidden entries"
+    );
+}
+
+#[test]
+fn test_scan_rejects_non_directory_root() {
+    // Regression: scanning a plain file returned a bogus one-node tree and exit 0.
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("plain.txt");
+    std::fs::write(&file, b"x").unwrap();
+
+    for threads in [1usize, 4] {
+        let opts = rusdu::scan::ScanOptions {
+            threads,
+            ..Default::default()
+        };
+        let err = rusdu::scan::scan_directory(&file, opts, rusdu::scan::ProgressMode::Silent)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("not a directory"),
+            "threads={threads}: expected a 'not a directory' error, got {err}"
+        );
+    }
+}
+
+#[test]
+fn test_exclude_pattern_matches_path_relative_to_root() {
+    // Regression: globset anchors patterns, so a multi-component pattern like
+    // `src/main.rs` never matched the absolute path and `-X` files did nothing.
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join("src")).unwrap();
+    std::fs::write(tmp.path().join("src/main.rs"), b"x").unwrap();
+    std::fs::write(tmp.path().join("src/keep.rs"), b"x").unwrap();
+
+    let opts = rusdu::scan::ScanOptions {
+        exclude_patterns: vec!["src/main.rs".to_string()],
+        ..Default::default()
+    };
+    let arena =
+        rusdu::scan::scan_directory(tmp.path(), opts, rusdu::scan::ProgressMode::Silent).unwrap();
+
+    let src_id = arena.get(arena.root).children[0];
+    let child_names: Vec<String> = arena
+        .get(src_id)
+        .children
+        .iter()
+        .map(|&id| arena.get(id).name.to_string())
+        .collect();
+
+    let excluded = arena
+        .get(src_id)
+        .children
+        .iter()
+        .find(|&&id| arena.get(id).name.as_ref() == "main.rs")
+        .copied();
+    assert!(
+        excluded.is_some_and(|id| arena.get(id).flags.contains(EntryFlags::EXCLUDED)),
+        "root-relative exclude pattern must apply, children were {child_names:?}"
+    );
+}
+
+#[test]
+fn test_invalid_exclude_pattern_is_reported() {
+    // Regression: an unparsable glob was dropped with `if let Ok(..)`, so a
+    // typo silently excluded nothing.
+    let opts = rusdu::scan::ScanOptions {
+        exclude_patterns: vec!["[".to_string()],
+        ..Default::default()
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let err = rusdu::scan::scan_directory(tmp.path(), opts, rusdu::scan::ProgressMode::Silent)
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("invalid exclude pattern"),
+        "expected an invalid-pattern error, got {err}"
+    );
+}
+
+#[test]
+fn test_scan_thread_count_is_clamped() {
+    // Regression: `-t 0` silently fell back to single-threaded and huge values
+    // were passed straight to rayon.
+    use rusdu::cli::Args;
+    let args_for = |n: &str| Args::try_parse_from(["rusdu", "--threads", n]).unwrap();
+    let opts_for = |n: &str| rusdu::scan::ScanOptions::from_args(&args_for(n));
+
+    assert!(
+        opts_for("0").threads >= 1,
+        "thread count must be at least 1"
+    );
+    assert!(
+        opts_for("1000000").threads <= 1024,
+        "thread count must be clamped to something sane, got {}",
+        opts_for("1000000").threads
+    );
+}
+
+#[test]
 fn test_stats_recalculation_skips_excluded() {
     let root = TreeNode::new_dir("root".to_string(), 1, 10, EntryFlags::empty(), None);
     let mut arena = TreeArena::new(root);

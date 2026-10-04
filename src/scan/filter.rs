@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use std::fs::File;
 use std::io::Read;
@@ -19,11 +19,12 @@ impl Filter {
     ) -> Result<Self> {
         let mut builder = GlobSetBuilder::new();
 
-        // Compile CLI patterns
+        // Compile CLI patterns. Invalid globs used to be dropped with
+        // `if let Ok(..)`, so a typo silently excluded nothing. Report it.
         for pat_str in exclude_strs {
-            if let Ok(glob) = Glob::new(pat_str) {
-                builder.add(glob);
-            }
+            let glob = Glob::new(pat_str)
+                .with_context(|| format!("invalid exclude pattern: {pat_str:?}"))?;
+            builder.add(glob);
         }
 
         // Compile patterns from file
@@ -32,11 +33,30 @@ impl Filter {
                 Ok(file) => {
                     let reader = std::io::BufReader::new(file);
                     for line in std::io::BufRead::lines(reader) {
-                        let line = line?;
+                        // A single non-UTF-8 byte in an `-X` pattern file used
+                        // to abort the entire scan via `?`. Skip it instead.
+                        let line = match line {
+                            Ok(l) => l,
+                            Err(err) => {
+                                eprintln!(
+                                    "Warning: skipping undecodable line in {}: {}",
+                                    file_path.display(),
+                                    err
+                                );
+                                break;
+                            }
+                        };
                         let trimmed = line.trim();
                         if !trimmed.is_empty() && !trimmed.starts_with('#') {
-                            if let Ok(glob) = Glob::new(trimmed) {
-                                builder.add(glob);
+                            match Glob::new(trimmed) {
+                                Ok(glob) => {
+                                    builder.add(glob);
+                                }
+                                Err(err) => {
+                                    eprintln!(
+                                        "Warning: invalid exclude pattern {trimmed:?}: {err}"
+                                    );
+                                }
                             }
                         }
                     }
@@ -46,7 +66,11 @@ impl Filter {
             }
         }
 
-        let exclude_patterns = builder.build().unwrap_or_else(|_| GlobSet::empty());
+        // Propagate the error: a failed `build()` used to fall back to an empty
+        // GlobSet, silently discarding every exclusion for the whole run.
+        let exclude_patterns = builder
+            .build()
+            .context("failed to compile exclude patterns")?;
 
         Ok(Self {
             exclude_patterns,
@@ -126,12 +150,40 @@ impl Filter {
     }
 
     pub fn is_glob_match(&self, path: &Path) -> bool {
+        self.is_glob_match_relative(path, None)
+    }
+
+    /// Test `path` against the exclusion patterns.
+    ///
+    /// Patterns are matched against the base name, the full path, and -- when
+    /// `root` is supplied -- the path relative to the scan root. globset
+    /// anchors patterns, so without the relative form a multi-component pattern
+    /// like `src/main.rs` never matched and `-X` files (which conventionally
+    /// hold root-relative paths) silently did nothing.
+    pub fn is_glob_match_relative(&self, path: &Path, root: Option<&Path>) -> bool {
         if self.exclude_patterns.is_empty() {
             return false;
         }
         if let Some(file_name) = path.file_name() {
             if self.exclude_patterns.is_match(file_name) {
                 return true;
+            }
+        }
+        if let Some(root) = root {
+            if let Ok(rel) = path.strip_prefix(root) {
+                if self.exclude_patterns.is_match(rel) {
+                    return true;
+                }
+                if let Some(rel_str) = rel.to_str() {
+                    // Also try forward slashes so one pattern file works on
+                    // Windows regardless of native separator.
+                    if rel_str.contains('\\') {
+                        let unix = rel_str.replace('\\', "/");
+                        if self.exclude_patterns.is_match(unix.as_str()) {
+                            return true;
+                        }
+                    }
+                }
             }
         }
         self.exclude_patterns.is_match(path)

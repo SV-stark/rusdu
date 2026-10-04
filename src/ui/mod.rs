@@ -41,6 +41,10 @@ pub struct AppState {
     // Active dialogs
     pub active_dialog: Dialog,
     pub show_icons: bool,
+    /// Set once a quit has been confirmed; the render loop breaks on it.
+    /// Needed because dialogs cannot return through the key handlers without
+    /// losing the fact that the user asked to exit.
+    pub quit_requested: bool,
     pub refreshing_rx: Option<std::sync::mpsc::Receiver<Result<TreeArena, String>>>,
     pub visible_children: Vec<NodeId>,
 
@@ -51,6 +55,11 @@ pub struct AppState {
     pub fs_modified: bool,
     pub watcher: Option<notify::RecommendedWatcher>,
     pub watcher_rx: Option<std::sync::mpsc::Receiver<notify::Result<notify::Event>>>,
+
+    /// Terminal size, refreshed each frame so mouse hit-testing (which happens
+    /// outside `draw`) knows the list geometry.
+    pub terminal_rows: u16,
+    pub terminal_cols: u16,
 }
 
 impl AppState {
@@ -120,6 +129,12 @@ impl AppState {
         }
     }
 
+    /// Whether quitting needs a confirmation dialog. `--no-confirm-quit`
+    /// overrides `--confirm-quit`.
+    pub fn confirm_quit(&self) -> bool {
+        self.args.confirm_quit && !self.args.no_confirm_quit
+    }
+
     pub fn allow_refresh(&self) -> bool {
         let is_import = self.args.import_file.is_some();
         if self.args.disable_refresh {
@@ -178,17 +193,43 @@ pub enum HelpPage {
     About,
 }
 
-pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
-    // Set up raw mode and alternate screen
-    crossterm::terminal::enable_raw_mode()?;
-    let mut stdout = std::io::stdout();
-    crossterm::execute!(
-        stdout,
-        crossterm::terminal::EnterAlternateScreen,
-        crossterm::cursor::Hide,
-        crossterm::event::EnableMouseCapture
-    )?;
+/// Restores the terminal on drop so raw mode, the alternate screen, the mouse
+/// capture and the cursor are released on *every* exit path -- including the
+/// `?` early returns from `draw`/`poll`/`read` below and any panic in a
+/// handler. Without this, an error left the user's shell in raw mode with a
+/// hidden cursor.
+struct TerminalRestore;
 
+impl TerminalRestore {
+    fn enter() -> Result<Self> {
+        crossterm::terminal::enable_raw_mode()?;
+        crossterm::execute!(
+            std::io::stdout(),
+            crossterm::terminal::EnterAlternateScreen,
+            crossterm::cursor::Hide,
+            crossterm::event::EnableMouseCapture
+        )?;
+        Ok(Self)
+    }
+}
+
+impl Drop for TerminalRestore {
+    fn drop(&mut self) {
+        let _ = crossterm::terminal::disable_raw_mode();
+        let _ = crossterm::execute!(
+            std::io::stdout(),
+            crossterm::terminal::LeaveAlternateScreen,
+            crossterm::cursor::Show,
+            crossterm::event::DisableMouseCapture
+        );
+    }
+}
+
+pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
+    // Set up raw mode and alternate screen; the guard restores them on drop.
+    let _restore = TerminalRestore::enter()?;
+
+    let stdout = std::io::stdout();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -200,15 +241,20 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
         history: Vec::new(),
         apparent_size: args.apparent_size,
         si: args.si,
-        show_itemcount: args.show_itemcount,
-        show_mtime: args.show_mtime,
-        show_hidden: !args.hide_hidden,
+        // `--show-X` and `--hide-X` are opposites; honour both rather than
+        // only the `hide_` half, which made every `--show-*` flag a no-op.
+        show_itemcount: args.show_itemcount || !args.hide_itemcount,
+        show_mtime: args.show_mtime || !args.hide_mtime,
+        show_hidden: args.show_hidden || !args.hide_hidden,
         group_dirs_first: args.group_directories_first,
-        graph_mode: match (args.hide_graph, args.hide_percent) {
-            (true, true) => GraphMode::None,
-            (false, true) => GraphMode::Graph,
-            (true, false) => GraphMode::Percent,
-            (false, false) => GraphMode::Both,
+        graph_mode: match (
+            args.show_graph || !args.hide_graph,
+            args.show_percent || !args.hide_percent,
+        ) {
+            (true, true) => GraphMode::Both,
+            (true, false) => GraphMode::Graph,
+            (false, true) => GraphMode::Percent,
+            (false, false) => GraphMode::None,
         },
         shared_column_mode: match args.shared_column.as_str() {
             "off" => SharedColumnMode::Off,
@@ -217,6 +263,7 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
         },
         active_dialog: Dialog::None,
         show_icons: args.icons,
+        quit_requested: false,
         refreshing_rx: None,
         args,
         visible_children: Vec::new(),
@@ -226,12 +273,20 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
         fs_modified: false,
         watcher: None,
         watcher_rx: None,
+        terminal_rows: 24,
+        terminal_cols: 80,
     };
     state.update_visible_children();
     state.setup_watcher();
 
     // Render loop
     loop {
+        // Only respond to `q`/Ctrl+C once the terminal is actually in raw mode.
+        // Reading stdin in canonical mode would consume a line of piped input
+        // and can return `Err` on a non-tty stdin (e.g. `rusdu -o - < dir`),
+        // so bail out early rather than touching the event queue.
+        let interactive_terminal = std::io::IsTerminal::is_terminal(&std::io::stdin());
+
         // Check filesystem watcher channel
         if let Some(ref rx) = state.watcher_rx {
             while let Ok(Ok(event)) = rx.try_recv() {
@@ -243,31 +298,44 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
 
         // Check background refresh channel
         if let Some(ref rx) = state.refreshing_rx {
-            if let Ok(res) = rx.try_recv() {
-                match res {
-                    Ok(new_arena) => {
-                        if state.current_dir == state.arena.root {
-                            state.arena = new_arena;
-                            state.selected_idx = 0;
-                            state.scroll_offset = 0;
-                        } else {
-                            state.arena.replace_subtree(state.current_dir, &new_arena);
-                            crate::tree::stats::recalculate_stats(&mut state.arena);
-                            state.selected_idx = 0;
-                            state.scroll_offset = 0;
+            match rx.try_recv() {
+                Ok(res) => {
+                    match res {
+                        Ok(new_arena) => {
+                            if state.current_dir == state.arena.root {
+                                state.arena = new_arena;
+                                state.selected_idx = 0;
+                                state.scroll_offset = 0;
+                            } else {
+                                state.arena.replace_subtree(state.current_dir, &new_arena);
+                                crate::tree::stats::recalculate_stats(&mut state.arena);
+                                state.selected_idx = 0;
+                                state.scroll_offset = 0;
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Directory refresh failed: {}", e);
                         }
                     }
-                    Err(e) => {
-                        log::error!("Directory refresh failed: {}", e);
-                    }
+                    state.refreshing_rx = None;
+                    state.update_visible_children();
+                    state.setup_watcher();
                 }
-                state.refreshing_rx = None;
-                state.update_visible_children();
-                state.setup_watcher();
+                // The refresh worker died (panic, or an early `?` return) without
+                // ever sending a result. Leaving `refreshing_rx` set would wedge
+                // the TUI: the "Refreshing..." modal is drawn every frame and
+                // every key is swallowed. Clear it so the UI stays usable.
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    log::error!("Refresh worker terminated without sending a result");
+                    state.refreshing_rx = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
 
         terminal.draw(|f| browser::draw(f, &mut state))?;
+        state.terminal_rows = terminal.size()?.height;
+        state.terminal_cols = terminal.size()?.width;
 
         let poll_interval = if state.args.slow_updates {
             std::time::Duration::from_millis(500)
@@ -275,7 +343,7 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
             std::time::Duration::from_millis(100)
         };
 
-        if event::poll(poll_interval)? {
+        if interactive_terminal && event::poll(poll_interval)? {
             let ev = event::read()?;
             if let Event::Key(key) = ev {
                 // Ignore key releases
@@ -288,9 +356,9 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
                     break;
                 }
 
-                if state.refreshing_rx.is_some() {
+                if state.refreshing_rx.is_some() && state.active_dialog == Dialog::None {
                     if key.code == KeyCode::Char('q') {
-                        if state.args.confirm_quit {
+                        if state.confirm_quit() {
                             state.active_dialog = Dialog::ConfirmQuit;
                         } else {
                             break;
@@ -300,7 +368,15 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
                 }
 
                 if state.active_dialog != Dialog::None {
-                    if handle_dialog_keys(key.code, &mut state)? {
+                    let handled = handle_dialog_keys(key.code, &mut state)?;
+                    // A confirmed quit must be honoured even though the dialog
+                    // handler reports the key as "handled". Checking before
+                    // `continue` keeps the request from being swallowed, which
+                    // previously left the dialog open forever.
+                    if state.quit_requested {
+                        break;
+                    }
+                    if handled {
                         continue;
                     }
                 } else {
@@ -316,15 +392,7 @@ pub fn run_tui(arena: TreeArena, args: Args) -> Result<()> {
         }
     }
 
-    // Restore terminal
-    crossterm::terminal::disable_raw_mode()?;
-    crossterm::execute!(
-        terminal.backend_mut(),
-        crossterm::terminal::LeaveAlternateScreen,
-        crossterm::cursor::Show,
-        crossterm::event::DisableMouseCapture
-    )?;
-
+    // Terminal restoration is handled by the `TerminalRestore` guard.
     Ok(())
 }
 
@@ -346,22 +414,32 @@ fn handle_mouse_event(mouse: MouseEvent, state: &mut AppState) -> Result<()> {
             }
         }
         MouseEventKind::Down(MouseButton::Left) => {
-            let list_row = mouse.row as usize;
-            if list_row >= 1 {
-                let clicked_idx = state.scroll_offset + (list_row - 1);
-                if clicked_idx < state.visible_children.len() {
-                    if state.selected_idx == clicked_idx {
-                        let selected_id = state.visible_children[state.selected_idx];
-                        if state.arena.get(selected_id).is_dir() {
-                            state.history.push((state.current_dir, state.selected_idx));
-                            state.current_dir = selected_id;
-                            state.selected_idx = 0;
-                            state.scroll_offset = 0;
-                            state.update_visible_children();
-                        }
-                    } else {
-                        state.selected_idx = clicked_idx;
+            // Bound the click to the file list. `mouse.row` is a screen
+            // coordinate, so without this a click on the header/footer -- or
+            // anywhere inside the preview pane -- was translated into a row
+            // index and moved the selection.
+            let (list_rows, list_cols) = browser::list_body_dimensions(state);
+            let row = mouse.row as usize;
+            if row == 0 || row > list_rows || usize::from(mouse.column) >= list_cols {
+                return Ok(());
+            }
+            let clicked_idx = state.scroll_offset + (row - 1);
+            if clicked_idx < state.visible_children.len() {
+                if state.selected_idx == clicked_idx {
+                    let selected_id = state.visible_children[state.selected_idx];
+                    if state.arena.get(selected_id).is_dir() {
+                        state.history.push((state.current_dir, state.selected_idx));
+                        state.current_dir = selected_id;
+                        state.selected_idx = 0;
+                        state.scroll_offset = 0;
+                        state.update_visible_children();
+                        // Keyboard navigation re-arms the watcher here; without
+                        // it, mouse navigation left the watcher pointed at the
+                        // parent directory and refresh/change detection broke.
+                        state.setup_watcher();
                     }
+                } else {
+                    state.selected_idx = clicked_idx;
                 }
             }
         }
@@ -444,7 +522,12 @@ fn handle_dialog_keys(code: KeyCode, state: &mut AppState) -> Result<bool> {
         Dialog::ConfirmQuit => {
             match code {
                 KeyCode::Char('y') | KeyCode::Enter => {
-                    return Ok(false); // Signal exit loop
+                    // Signal the render loop to exit. Previously this returned
+                    // `Ok(false)`, which the caller read as "key not handled",
+                    // so `--confirm-quit` could never be confirmed and `q` was a
+                    // dead key for the rest of the session.
+                    state.quit_requested = true;
+                    state.active_dialog = Dialog::None;
                 }
                 KeyCode::Char('n') | KeyCode::Esc | KeyCode::Char('q') => {
                     state.active_dialog = Dialog::None;
@@ -656,7 +739,7 @@ fn handle_browser_keys(key: event::KeyEvent, state: &mut AppState) -> Result<boo
     match key.code {
         // Navigation keys
         KeyCode::Char('q') => {
-            if state.args.confirm_quit {
+            if state.confirm_quit() {
                 state.active_dialog = Dialog::ConfirmQuit;
             } else {
                 return Ok(true); // Signal exit loop
@@ -1168,11 +1251,23 @@ fn calculate_extension_stats(arena: &TreeArena, dir_id: NodeId) -> Vec<(String, 
                 stack.push(child_id);
             }
         } else {
+            // Mirror `recalculate_stats`: excluded entries and hard-link
+            // duplicates contribute nothing to totals, so counting them here
+            // made the per-extension percentages disagree with the footer total.
+            if node.flags.contains(crate::tree::EntryFlags::EXCLUDED)
+                || node
+                    .flags
+                    .contains(crate::tree::EntryFlags::HARD_LINK_DUPLICATE)
+            {
+                continue;
+            }
             let ext = std::path::Path::new(&*node.name)
                 .extension()
                 .map(|e| e.to_string_lossy().to_lowercase())
                 .unwrap_or_else(|| "no extension".to_string());
-            *ext_sizes.entry(ext).or_insert(0) += node.dsize as u64;
+            // `dsize` is i64; clamp before widening so a negative value cannot
+            // wrap to ~1.8e19 and collapse every other percentage to 0.0.
+            *ext_sizes.entry(ext).or_insert(0) += node.dsize.max(0) as u64;
         }
     }
     let mut list: Vec<(String, u64)> = ext_sizes.into_iter().collect();

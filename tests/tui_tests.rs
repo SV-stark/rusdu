@@ -56,6 +56,7 @@ fn create_test_state() -> AppState {
         shared_column_mode: SharedColumnMode::Off,
         active_dialog: Dialog::None,
         show_icons: false,
+        quit_requested: false,
         refreshing_rx: None,
         visible_children: Vec::new(),
         custom_actions: std::collections::HashMap::new(),
@@ -64,6 +65,8 @@ fn create_test_state() -> AppState {
         fs_modified: false,
         watcher: None,
         watcher_rx: None,
+        terminal_rows: 24,
+        terminal_cols: 80,
     };
     state.update_visible_children();
     state

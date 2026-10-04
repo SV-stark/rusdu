@@ -27,6 +27,11 @@ pub fn scan_parallel(
     }
 
     let root_meta = std::fs::symlink_metadata(root_path)?;
+    // Scanning a plain file previously succeeded with a bogus one-node tree
+    // (and no error at all in parallel mode). Fail like the walker does.
+    if !root_meta.is_dir() {
+        anyhow::bail!("{} is not a directory", root_path.display());
+    }
     let root_plat = get_metadata(root_path, &root_meta, opts.extended);
 
     let root_node = TreeNode::new_dir(
@@ -49,16 +54,41 @@ pub fn scan_parallel(
 
     // Build the WalkDir with the specified number of threads and sort by depth
     // to guarantee parent directories are added to arena/path_to_id before child items.
-    let mut entries: Vec<_> = WalkDirGeneric::<((), Option<NodeId>)>::new(root_path)
+    let walk = WalkDirGeneric::<((), Option<NodeId>)>::new(root_path)
         .follow_links(opts.follow_symlinks)
         .parallelism(Parallelism::RayonNewPool(opts.threads))
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .collect();
+        // jwalk defaults `skip_hidden` to true, which silently drops every
+        // dotfile/dot-directory. The single-threaded walker reads them, so the
+        // two backends disagreed on totals. Must be disabled for parity.
+        .skip_hidden(false);
+
+    // Collect entries and walk errors separately. Errors used to be discarded by
+    // `filter_map(..ok())`, which turned unreadable directories into entries
+    // that were later flagged EMPTY_DIR instead of READ_ERROR -- silent
+    // under-reporting that the user cannot detect.
+    let mut entries = Vec::new();
+    let mut walk_errors: Vec<std::path::PathBuf> = Vec::new();
+    for res in walk {
+        match res {
+            Ok(e) => entries.push(e),
+            Err(e) => {
+                if let Some(p) = e.path() {
+                    walk_errors.push(p.to_path_buf());
+                } else {
+                    walk_errors.push(root_path.to_path_buf());
+                }
+            }
+        }
+    }
 
     entries.sort_by_key(|e| e.depth());
 
     for entry in entries {
+        // Honour an interactive abort instead of running the whole scan to
+        // completion in silence.
+        if stats.aborted {
+            break;
+        }
         let path = entry.path();
         if path == root_path {
             continue;
@@ -108,7 +138,7 @@ pub fn scan_parallel(
             continue;
         }
 
-        if filter.is_glob_match(&path) {
+        if filter.is_glob_match_relative(&path, Some(root_path)) {
             let child_node = if is_dir_entry {
                 TreeNode::new_dir(
                     file_name,
@@ -133,7 +163,12 @@ pub fn scan_parallel(
             continue;
         }
 
-        let is_symlink = entry.file_type.is_symlink();
+        // `entry.file_type` is the type of the *target* once `follow_links` is set, so
+        // `is_symlink()` is always false under `-L` and a symlinked directory was
+        // registered as a real directory and recursed into -- duplicating the
+        // whole subtree (unboundedly, on a junction). `path_is_symlink()`
+        // reports whether the *path* is a link in both modes.
+        let is_symlink = entry.path_is_symlink();
         let (meta, is_dir) = if is_symlink {
             if opts.follow_symlinks {
                 match std::fs::metadata(&path) {
@@ -222,10 +257,30 @@ pub fn scan_parallel(
         }
     }
 
+    // Mark directories that could not be read as READ_ERROR rather than letting
+    // them fall through to EMPTY_DIR below (which would claim they are empty).
+    for err_path in &walk_errors {
+        if let Some(&parent_id) = path_to_id.get(err_path) {
+            arena
+                .get_mut(parent_id)
+                .flags
+                .insert(EntryFlags::READ_ERROR);
+        }
+    }
+
+    if !walk_errors.is_empty() {
+        eprintln!(
+            "Warning: {} director{} could not be read",
+            walk_errors.len(),
+            if walk_errors.len() == 1 { "y" } else { "ies" }
+        );
+    }
+
     for i in 0..arena.nodes.len() {
         if arena.nodes[i].is_dir()
             && arena.nodes[i].children.is_empty()
             && !arena.nodes[i].flags.contains(EntryFlags::READ_ERROR)
+            && !arena.nodes[i].flags.contains(EntryFlags::EXCLUDED)
         {
             arena.nodes[i].flags.insert(EntryFlags::EMPTY_DIR);
         }
@@ -236,6 +291,12 @@ pub fn scan_parallel(
 
     if progress_mode == ProgressMode::Line {
         eprintln!("\nScan complete. Scanned {} items.", stats.items_scanned);
+    }
+
+    // A partial tree looks complete and would be silently wrong, so surface
+    // the abort instead of returning it as a normal result.
+    if stats.aborted {
+        anyhow::bail!("Scan aborted by user");
     }
 
     Ok(arena)

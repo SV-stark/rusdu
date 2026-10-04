@@ -16,6 +16,22 @@ pub const DEFAULT_THREADS: usize = 1;
 /// Default binary export block size in KiB.
 pub const DEFAULT_BLOCK_SIZE_KB: usize = 64;
 
+impl Default for ScanOptions {
+    fn default() -> Self {
+        Self {
+            one_file_system: false,
+            exclude_patterns: Vec::new(),
+            exclude_from: None,
+            exclude_caches: false,
+            exclude_kernfs: false,
+            follow_symlinks: false,
+            threads: DEFAULT_THREADS,
+            extended: false,
+            update_interval_ms: 100,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ScanOptions {
     pub one_file_system: bool,
@@ -47,7 +63,12 @@ impl ScanOptions {
             exclude_caches: args.exclude_caches,
             exclude_kernfs: args.exclude_kernfs,
             follow_symlinks: args.follow_symlinks,
-            threads: args.threads.unwrap_or(DEFAULT_THREADS),
+            // Clamp the thread count: `-t 0` silently fell back to the single-threaded
+            // walker, and an absurd value was handed straight to rayon.
+            threads: args.threads.unwrap_or(DEFAULT_THREADS).clamp(
+                1,
+                std::thread::available_parallelism().map_or(64, |n| n.get()),
+            ),
             extended: args.extended,
             update_interval_ms,
         }
@@ -61,6 +82,43 @@ pub enum ProgressMode {
     Fullscreen,
 }
 
+/// Puts the terminal in raw mode for the duration of a fullscreen scan so the
+/// documented `q` / `Ctrl+C` abort actually works, and restores it afterwards.
+/// In canonical mode the line discipline buffers `q` until a newline is typed,
+/// and `Ctrl+C` raises `SIGINT` and kills the process outright.
+struct ScanRawMode(bool);
+
+impl ScanRawMode {
+    fn enter(mode: ProgressMode) -> Self {
+        let wanted = mode == ProgressMode::Fullscreen
+            && std::io::IsTerminal::is_terminal(&std::io::stdin())
+            && std::io::IsTerminal::is_terminal(&std::io::stderr());
+        if wanted && crossterm::terminal::enable_raw_mode().is_ok() {
+            let _ = crossterm::execute!(
+                std::io::stderr(),
+                crossterm::terminal::EnterAlternateScreen,
+                crossterm::cursor::Hide
+            );
+            Self(true)
+        } else {
+            Self(false)
+        }
+    }
+}
+
+impl Drop for ScanRawMode {
+    fn drop(&mut self) {
+        if self.0 {
+            let _ = crossterm::execute!(
+                std::io::stderr(),
+                crossterm::terminal::LeaveAlternateScreen,
+                crossterm::cursor::Show
+            );
+            let _ = crossterm::terminal::disable_raw_mode();
+        }
+    }
+}
+
 pub fn scan_directory(
     path: &Path,
     opts: ScanOptions,
@@ -68,6 +126,7 @@ pub fn scan_directory(
 ) -> anyhow::Result<TreeArena> {
     let fixed_path = platform::fix_path(path);
     let path = fixed_path.as_path();
+    let _raw_mode = ScanRawMode::enter(progress_mode);
     if opts.threads > 1 {
         parallel::scan_parallel(path, opts, progress_mode)
     } else {
@@ -143,12 +202,11 @@ pub fn update_progress(current_path: &Path, stats: &mut ScanStats, mode: Progres
         use std::io::Write;
         let _ = std::io::stderr().flush();
     } else if mode == ProgressMode::Fullscreen {
-        use crossterm::{QueueableCommand, cursor, terminal};
+        use crossterm::{QueueableCommand, terminal};
         use std::io::Write;
         let mut stderr = std::io::stderr();
-        let _ = stderr.queue(cursor::Hide);
         let _ = stderr.queue(terminal::Clear(terminal::ClearType::All));
-        let _ = stderr.queue(cursor::MoveTo(0, 0));
+        let _ = stderr.queue(crossterm::cursor::MoveTo(0, 0));
         let size_str = crate::format::format_size(stats.size_scanned, false);
         let _ = writeln!(
             stderr,

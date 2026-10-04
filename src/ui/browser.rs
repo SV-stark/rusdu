@@ -6,6 +6,22 @@ use crate::ui::{
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
+/// Screen dimensions of the scrollable file list, excluding the header row.
+/// Row 0 of the list body is the first visible child, matching the offsets used
+/// by `draw`. Mouse hit-testing uses this so clicks outside the list (footer,
+/// preview pane) don't move the cursor.
+pub fn list_body_dimensions(state: &AppState) -> (usize, usize) {
+    let width = state.terminal_cols;
+    let height = state.terminal_rows;
+    let body = usize::from(height.saturating_sub(2));
+    let cols = if state.show_preview {
+        usize::from(width).saturating_mul(60) / 100
+    } else {
+        usize::from(width)
+    };
+    (body, cols)
+}
+
 pub fn draw(f: &mut Frame, state: &mut AppState) {
     let theme = get_theme(&state.args.color);
 
@@ -169,7 +185,14 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         // Optional Column: mtime
         let mut mtime_str = String::new();
         if state.show_mtime {
-            let mtime_val = child.extended.as_ref().map(|e| e.mtime).unwrap_or(0);
+            // For directories show the newest mtime in the subtree (what ncdu
+            // displays, and what the `mtime` sort key uses); the node's own
+            // mtime is almost always stale.
+            let mtime_val = if child.is_dir() {
+                stats.latest_mtime
+            } else {
+                child.extended.as_ref().map(|e| e.mtime).unwrap_or(0)
+            };
             if mtime_val > 0 {
                 let formatted =
                     if let Ok(odt) = time::OffsetDateTime::from_unix_timestamp(mtime_val) {
@@ -188,7 +211,9 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         }
 
         // Percentage & Graph calculations
-        let pct = (size_val as f64 / parent_cumulative_size as f64) * 100.0;
+        // `parent_cumulative_size` skips EXCLUDED children, but excluded entries are
+        // listed once `show_hidden` is on, so the ratio could exceed 100%.
+        let pct = ((size_val as f64 / parent_cumulative_size as f64) * 100.0).clamp(0.0, 999.9);
         let pct_str = format!(" {:>5.1}%", pct);
 
         let mut graph_str = String::new();

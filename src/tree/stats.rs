@@ -94,12 +94,22 @@ pub fn recalculate_stats(arena: &mut TreeArena) {
                 stats.latest_mtime = stats.latest_mtime.max(child_stats.latest_mtime);
 
                 if child_node.is_dir() {
-                    stats.item_count += child_stats.item_count + 1;
-                    stats.dir_count += child_stats.dir_count + 1;
-                    stats.file_count += child_stats.file_count;
+                    // These counters are u32 while the size totals above use
+                    // saturating arithmetic; plain `+=` overflowed on trees
+                    // with more than u32::MAX items (panic when overflow
+                    // checks are on, silent wrap otherwise).
+                    stats.item_count = stats
+                        .item_count
+                        .saturating_add(child_stats.item_count)
+                        .saturating_add(1);
+                    stats.dir_count = stats
+                        .dir_count
+                        .saturating_add(child_stats.dir_count)
+                        .saturating_add(1);
+                    stats.file_count = stats.file_count.saturating_add(child_stats.file_count);
                 } else {
-                    stats.item_count += 1;
-                    stats.file_count += 1;
+                    stats.item_count = stats.item_count.saturating_add(1);
+                    stats.file_count = stats.file_count.saturating_add(1);
                 }
             }
 
