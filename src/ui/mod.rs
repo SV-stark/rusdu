@@ -1,7 +1,7 @@
 pub mod actions;
 pub mod browser;
 pub mod drives;
-mod theme;
+pub mod theme;
 
 use crate::cli::Args;
 use crate::tree::{NodeId, TreeArena};

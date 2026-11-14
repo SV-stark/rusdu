@@ -1,5 +1,5 @@
 use crate::tree::{EntryFlags, NodeId};
-use crate::ui::theme::get_theme;
+use crate::ui::theme::resolve_theme;
 use crate::ui::{
     AppState, Dialog, DriveInfo, GraphMode, HelpPage, SharedColumnMode, get_node_path,
 };
@@ -23,7 +23,7 @@ pub fn list_body_dimensions(state: &AppState) -> (usize, usize) {
 }
 
 pub fn draw(f: &mut Frame, state: &mut AppState) {
-    let theme = get_theme(&state.args.color);
+    let theme = resolve_theme(&state.args.color, state.args.theme_config.as_ref());
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -252,7 +252,8 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
         };
 
         // Combine fields
-        let row_style = if idx == state.selected_idx {
+        let is_selected = idx == state.selected_idx;
+        let row_style = if is_selected {
             theme.selected
         } else if child.is_dir() {
             theme.dir
@@ -260,24 +261,68 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
             theme.file
         };
 
-        // Construct raw formatted row line
-        let line = format!(
-            "{:2}{:>10}{}{}{}{}{} {}",
-            flag,
-            size_str,
-            shared_str,
-            itemcount_str,
-            mtime_str,
+        let pct_str =
             if state.graph_mode == GraphMode::Both || state.graph_mode == GraphMode::Percent {
-                &pct_str
+                pct_str
             } else {
-                ""
-            },
-            graph_str,
-            display_name
-        );
+                String::new()
+            };
 
-        list_items.push(ListItem::new(line).style(row_style));
+        let list_item = if is_selected {
+            let line = format!(
+                "{:2}{:>10}{}{}{}{}{} {}",
+                flag,
+                size_str,
+                shared_str,
+                itemcount_str,
+                mtime_str,
+                pct_str,
+                graph_str,
+                display_name
+            );
+            ListItem::new(line).style(row_style)
+        } else {
+            let flag_style = if theme.flag != Style::default() {
+                theme.flag
+            } else {
+                row_style
+            };
+            let size_style = theme.size_style(size_val, row_style);
+            let pct_style = if theme.percent != Style::default() {
+                theme.percent
+            } else {
+                row_style
+            };
+            let graph_style = if theme.graph != Style::default() {
+                theme.graph
+            } else {
+                row_style
+            };
+
+            let mut spans = vec![
+                Span::styled(format!("{:2}", flag), flag_style),
+                Span::styled(format!("{:>10}", size_str), size_style),
+            ];
+            if !shared_str.is_empty() {
+                spans.push(Span::styled(shared_str, row_style));
+            }
+            if !itemcount_str.is_empty() {
+                spans.push(Span::styled(itemcount_str, row_style));
+            }
+            if !mtime_str.is_empty() {
+                spans.push(Span::styled(mtime_str, row_style));
+            }
+            if !pct_str.is_empty() {
+                spans.push(Span::styled(pct_str, pct_style));
+            }
+            if !graph_str.is_empty() {
+                spans.push(Span::styled(graph_str, graph_style));
+            }
+            spans.push(Span::styled(format!(" {}", display_name), row_style));
+            ListItem::new(Line::from(spans))
+        };
+
+        list_items.push(list_item);
     }
 
     let list = List::new(list_items).block(Block::default().borders(Borders::NONE));
@@ -293,7 +338,7 @@ pub fn draw(f: &mut Frame, state: &mut AppState) {
                 .title(" Preview ")
                 .borders(Borders::ALL)
                 .border_style(theme.border)
-                .bg(Color::Black);
+                .bg(theme.dialog_bg);
             f.render_widget(block, area);
         }
     }
@@ -444,7 +489,7 @@ fn draw_help_dialog(f: &mut Frame, page: HelpPage, theme: &crate::ui::theme::The
         .title(" Help / About ")
         .borders(Borders::ALL)
         .border_style(theme.border)
-        .bg(Color::Black);
+        .bg(theme.dialog_bg);
 
     let paragraph = Paragraph::new(text).block(block);
     f.render_widget(Clear, area);
@@ -540,7 +585,7 @@ fn draw_info_dialog(
         .title(" Item Info ")
         .borders(Borders::ALL)
         .border_style(theme.border)
-        .bg(Color::Black);
+        .bg(theme.dialog_bg);
 
     let paragraph = Paragraph::new(text).block(block);
     f.render_widget(Clear, area);
@@ -570,7 +615,7 @@ fn draw_confirm_delete(
         .title(" Confirm Delete ")
         .borders(Borders::ALL)
         .border_style(theme.border)
-        .bg(Color::Black);
+        .bg(theme.dialog_bg);
 
     let paragraph = Paragraph::new(text).block(block);
     f.render_widget(Clear, area);
@@ -590,7 +635,7 @@ fn draw_confirm_quit(f: &mut Frame, theme: &crate::ui::theme::Theme) {
         .title(" Confirm Quit ")
         .borders(Borders::ALL)
         .border_style(theme.border)
-        .bg(Color::Black);
+        .bg(theme.dialog_bg);
 
     let paragraph = Paragraph::new(text).block(block);
     f.render_widget(Clear, area);
@@ -631,7 +676,7 @@ fn draw_refreshing_dialog(f: &mut Frame, theme: &crate::ui::theme::Theme) {
         .title(" Refreshing ")
         .borders(Borders::ALL)
         .border_style(theme.border)
-        .bg(Color::Black);
+        .bg(theme.dialog_bg);
 
     let paragraph = Paragraph::new(text).block(block);
     f.render_widget(Clear, area);
@@ -769,7 +814,7 @@ fn draw_sidebar_preview(
         .title(" Preview ")
         .borders(Borders::ALL)
         .border_style(theme.border)
-        .bg(Color::Black);
+        .bg(theme.dialog_bg);
 
     let paragraph = Paragraph::new(text).block(block);
     f.render_widget(Clear, area);
@@ -839,7 +884,7 @@ fn draw_fuzzy_search(
         .title(" Fuzzy Search Query ")
         .borders(Borders::ALL)
         .border_style(theme.border)
-        .bg(Color::Black);
+        .bg(theme.dialog_bg);
 
     let input_paragraph = Paragraph::new(format!("> {}", query)).block(input_block);
     f.render_widget(Clear, popup_layout[0]);
@@ -849,7 +894,7 @@ fn draw_fuzzy_search(
         .title(" Matching Items (Max 50) ")
         .borders(Borders::ALL)
         .border_style(theme.border)
-        .bg(Color::Black);
+        .bg(theme.dialog_bg);
 
     let height = (popup_layout[1].height as usize).saturating_sub(2).max(1);
     let scroll_offset = if selected_idx >= height {
@@ -895,7 +940,7 @@ fn draw_live_filter(f: &mut Frame, query: &str, theme: &crate::ui::theme::Theme)
         .title(" Live Filter ")
         .borders(Borders::ALL)
         .border_style(theme.border)
-        .bg(Color::Black);
+        .bg(theme.dialog_bg);
 
     let paragraph = Paragraph::new(text).block(block);
     f.render_widget(Clear, area);
@@ -942,7 +987,7 @@ fn draw_drive_selector(
         .title(" Select Disk/Drive to Scan ")
         .borders(Borders::ALL)
         .border_style(theme.border)
-        .bg(Color::Black);
+        .bg(theme.dialog_bg);
 
     let list = List::new(list_items).block(block);
     f.render_widget(Clear, area);
@@ -992,7 +1037,7 @@ fn draw_extension_analytics(
         .title(" Extension Space Distribution ")
         .borders(Borders::ALL)
         .border_style(theme.border)
-        .bg(Color::Black);
+        .bg(theme.dialog_bg);
 
     let list = List::new(list_items).block(block);
     f.render_widget(Clear, area);

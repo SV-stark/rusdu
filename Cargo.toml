@@ -1,6 +1,6 @@
 [package]
 name = "rusdu"
-version = "0.4.5"
+version = "0.5.0"
 edition = "2024"
 
 description = "Rust rewrite of ncdu — NCurses Disk Usage analyzer"
@@ -15,6 +15,7 @@ lexopt = "0.3"
 ratatui = { version = "0.30", features = ["crossterm"] }
 crossterm = { version = "0.29", features = ["events"] }
 serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
 # `unbounded_depth` is required because the ncdu JSON format is a nested array
 # whose depth equals the directory nesting depth. serde_json's default 128-level
 # limit made rusdu unable to re-import its own export for any tree nested more

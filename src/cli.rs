@@ -82,6 +82,7 @@ pub struct Args {
     pub no_confirm_delete: bool,
     pub delete_command: Option<String>,
     pub color: String,
+    pub theme_config: Option<crate::ui::theme::ThemeConfig>,
     pub icons: bool,
     pub log_file: Option<PathBuf>,
 }
@@ -147,6 +148,7 @@ impl Default for Args {
             no_confirm_delete: false,
             delete_command: None,
             color: "off".to_string(),
+            theme_config: None,
             icons: false,
             log_file: None,
         }

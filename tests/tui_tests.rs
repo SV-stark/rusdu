@@ -170,3 +170,44 @@ fn test_tui_compact_viewport_resilience() {
         "TUI rendering must be resilient to small viewport sizes"
     );
 }
+
+#[test]
+fn test_tui_custom_toml_theme_and_size_thresholds() {
+    use ratatui::style::Color;
+    use rusdu::ui::theme::ThemeConfig;
+
+    let mut state = create_test_state();
+    // Navigate into `docs` so there are 2 visible children: report.pdf (selected) and notes.txt (unselected)
+    let docs_id = state.visible_children[0];
+    state.current_dir = docs_id;
+    state.update_visible_children();
+
+    let toml_cfg = r##"
+        [color]
+        preset = "dark"
+        header = { fg = "#ffffff", bg = "#123456" }
+        graph = "magenta"
+
+        [[color.size_thresholds]]
+        min_size = "1KiB"
+        fg = "green"
+    "##;
+
+    state.args.theme_config = ThemeConfig::from_toml_str(toml_cfg).unwrap();
+
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| browser::draw(f, &mut state))
+        .expect("Failed to draw with custom theme");
+
+    let buffer = terminal.backend().buffer();
+    let header_cell = &buffer[(0, 0)];
+    assert_eq!(header_cell.fg, Color::Rgb(255, 255, 255));
+    assert_eq!(header_cell.bg, Color::Rgb(0x12, 0x34, 0x56));
+
+    // Row 2 on screen (y = 2) is the second child (notes.txt, 4.0 KiB, unselected).
+    // Columns 2..12 hold the formatted size, which should match the >= 1KiB green threshold.
+    let size_cell = &buffer[(8, 2)];
+    assert_eq!(size_cell.fg, Color::Green);
+}

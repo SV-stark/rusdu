@@ -49,6 +49,14 @@ pub fn load_config(args: &mut crate::cli::Args) -> Result<()> {
         }
     }
 
+    // 3. Load structured TOML configuration (~/.config/rusdu/config.toml)
+    if let Some(config_dir) = dirs::config_dir() {
+        let toml_config = config_dir.join("rusdu").join("config.toml");
+        if toml_config.exists() {
+            args.theme_config = crate::ui::theme::ThemeConfig::load_from_path(&toml_config)?;
+        }
+    }
+
     Ok(())
 }
 

@@ -207,6 +207,37 @@ Options in the configuration file use standard command-line syntax (one option p
 @--unknown-ncdu-option
 ```
 
+### Custom Colors (`config.toml`)
+
+You can customize individual UI element colors, modifiers, and size-threshold styles in `~/.config/rusdu/config.toml` (or `%APPDATA%\rusdu\config.toml` on Windows):
+
+```toml
+[color]
+preset = "dark" # optional base: "off", "dark", "dark-bg"
+header = { fg = "#ffffff", bg = "#1e3a8a", modifiers = ["bold"] }
+footer = { fg = "white", bg = "blue" }
+selected = { fg = "black", bg = "cyan", modifiers = ["bold"] }
+dir = { fg = "bright_blue", modifiers = ["bold"] }
+file = "white"
+graph = "green"
+percent = "yellow"
+shortcut = { fg = "yellow", modifiers = ["bold"] }
+border = "gray"
+flag = "red"
+dialog_bg = "#111111"
+
+[[color.size_thresholds]]
+min_size = "1GiB"
+fg = "red"
+modifiers = ["bold"]
+
+[[color.size_thresholds]]
+min_size = "100MiB"
+style = "yellow"
+```
+
+Colors accept named colors (`red`, `bright_blue`, `dark_gray`, etc.), `#RGB` / `#RRGGBB` hex values, `rgb(r, g, b)` / `[r, g, b]`, or 256-color indices (`0..=255`). Supported modifiers are `bold`, `dim`, `italic`, `underlined`, `reversed`, `crossed_out`, `slow_blink`, `rapid_blink`, and `hidden`. Passing `--ignore-config` skips both `config` and `config.toml`.
+
 ### Custom Actions (`actions.conf`)
 
 You can define custom keybindings in `~/.config/rusdu/actions.conf`:

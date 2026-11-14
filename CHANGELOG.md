@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-11-14
+
+### Added
+- **Advanced `config.toml` color customization**: Added support for `~/.config/rusdu/config.toml` (`%APPDATA%\rusdu\config.toml` on Windows) with a `[color]` section to customize `header`, `footer`, `selected`, `dir`, `file`, `graph`, `percent`, `shortcut`, `border`, `flag`, and `dialog_bg` on top of any base `preset` (`off`, `dark`, `dark-bg`).
+- **Flexible color & style syntax**: Supports named colors, `#RGB` / `#RRGGBB` hex, `rgb(r, g, b)` / `[r, g, b]`, 256-color indices, and style modifiers (`bold`, `dim`, `italic`, `underlined`, `reversed`, `crossed_out`, etc.).
+- **Size-threshold styling**: Added `[[color.size_thresholds]]` rules with human-readable `min_size` values (`KiB`/`MiB`/`GiB`/`TiB`, `KB`/`MB`/`GB`/`TB`, or bytes) to highlight large files and directories in the browser list.
+
+### Testing
+- Added unit tests for color, size-unit, and TOML config parsing plus a TUI rendering test for custom themes and size thresholds; full suite green (46 tests), `cargo fmt --check` and `cargo clippy --all-targets -D warnings` clean.
+
 ## [0.4.5] - 2026-11-14
 
 ### Changed
