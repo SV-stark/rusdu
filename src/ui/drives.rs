@@ -96,8 +96,10 @@ pub fn get_system_drives() -> Vec<DriveInfo> {
                         if res == 0 {
                             // SAFETY: libc::statvfs returned 0 indicating stat is fully initialized.
                             let stat = unsafe { stat.assume_init() };
+                            #[allow(clippy::unnecessary_cast)]
                             let total_space =
                                 (stat.f_blocks as u64).saturating_mul(stat.f_frsize as u64);
+                            #[allow(clippy::unnecessary_cast)]
                             let available_space =
                                 (stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64);
                             drives.push(DriveInfo {

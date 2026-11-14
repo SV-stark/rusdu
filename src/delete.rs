@@ -10,11 +10,14 @@ pub fn delete_item(path: &Path, custom_command: Option<&str>, read_only: bool) -
     if let Some(cmd_str) = custom_command {
         // Run custom command
         let abs_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        let mut abs_path_str = abs_path.to_string_lossy().into_owned();
+        let raw_abs_path = abs_path.to_string_lossy();
         #[cfg(windows)]
-        if let Some(stripped) = abs_path_str.strip_prefix(r"\\?\") {
-            abs_path_str = stripped.to_string();
-        }
+        let abs_path_str = raw_abs_path
+            .strip_prefix(r"\\?\")
+            .unwrap_or(&raw_abs_path)
+            .to_owned();
+        #[cfg(not(windows))]
+        let abs_path_str = raw_abs_path.into_owned();
 
         #[cfg(windows)]
         {
