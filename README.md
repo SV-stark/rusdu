@@ -1,5 +1,11 @@
 # 🦀 rusdu — Rust Disk Usage Analyzer
 
+<div align="center">
+
+[**English**](./README.md) | [**简体中文**](./README.zh-CN.md)
+
+</div>
+
 [![Crates.io](https://img.shields.io/crates/v/rusdu.svg)](https://crates.io/crates/rusdu)
 [![Downloads](https://img.shields.io/crates/d/rusdu.svg)](https://crates.io/crates/rusdu)
 [![Build Status](https://github.com/SV-stark/rusdu/actions/workflows/ci.yml/badge.svg)](https://github.com/SV-stark/rusdu/actions)
