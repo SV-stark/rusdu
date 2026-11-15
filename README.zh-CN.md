@@ -66,7 +66,7 @@ cargo install rusdu
 ---
 
 ### 方法 2：下载预编译二进制
-从 **[发布页面](https://github.com/SV-stark/rusdu/releases)** 下载最新的预编译二进制文件：
+从 **[releases](https://github.com/SV-stark/rusdu/releases)** 下载最新的预编译二进制文件：
 * **Linux**：`rusdu-linux-amd64.tar.gz`
 * **macOS**：`rusdu-macos-amd64.tar.gz`
 * **Windows**：`rusdu-windows-amd64.zip`
